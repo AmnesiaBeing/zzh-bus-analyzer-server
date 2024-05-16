@@ -3,6 +3,8 @@ pub mod someip_packet_parser {
     use self::someip_types::*;
     use crate::someiptypes::*;
 
+    use std::borrow::Borrow;
+    use std::cell::Cell;
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -47,23 +49,30 @@ pub mod someip_packet_parser {
         raw_packet: Box<&'a [u8]>,
     }
 
-    pub struct PacketParserConfig {}
-
-    pub fn init_from_path(path: PathBuf) -> Result<Channel, std::io::Error> {
-        let mut config = datalink::Config::default();
-        // let mut rx = match datalink::pcap::from_file(path, &mut config) {
-        //     Ok(Ethernet(rx)) => rx,
-        //     Ok(_) => panic!("packetdump: unhandled channel type"),
-        //     Err(e) => panic!("packetdump: unable to create channel: {}", e),
-        // };
-        datalink::pcap::from_file(path, &mut config)
+    pub struct PacketParser {
+        path: PathBuf,
+        pnet_config: Config,
+        rx: Cell<Box<dyn datalink::DataLinkReceiver>>,
     }
 
-    pub fn handle_packet_loop(config: Config, mut rx: Box<dyn datalink::DataLinkReceiver>) {
+    pub fn init_from_path(path: PathBuf) -> PacketParser {
+        let mut config = datalink::Config::default();
+        PacketParser {
+            path: path.clone(),
+            pnet_config: config,
+            rx: match datalink::pcap::from_file(path, &mut config) {
+                Ok(Ethernet(rx)) => rx,
+                Ok(_) => panic!("packetdump: unhandled channel type"),
+                Err(e) => panic!("packetdump: unable to create channel: {}", e),
+            },
+        }
+    }
+
+    pub fn handle_packet_loop(pp: &mut PacketParser) {
         let mut index = 0;
 
-        while let Ok((ts, pkt)) = rx.next() {
-            raw_packet_parser(config, ts, index, pkt);
+        while let Ok((ts, pkt)) = (*pp).rx.next() {
+            raw_packet_parser(pp.borrow(), ts, index, pkt);
             index += 1;
         }
     }
@@ -72,7 +81,7 @@ pub mod someip_packet_parser {
         (pkt.get_service_id() == 0xFFFF) && (pkt.get_method_id() == 0x8100)
     }
 
-    fn raw_packet_parser(config: Config, ts: &Duration, index: PacketIndex, pkt: &[u8]) {
+    fn raw_packet_parser(pp: &PacketParser, ts: &Duration, index: PacketIndex, pkt: &[u8]) {
         let handle_someip_packet = |pkt: SomeipPacket| {
             // 这里需要区分是否是SD包，如果是，那就需要解包看看是什么Entry的SD包
             if !(check_if_sd(&pkt)) {
