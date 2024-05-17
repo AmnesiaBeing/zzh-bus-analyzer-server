@@ -3,8 +3,8 @@ pub mod someip_packet_parser {
     use self::someip_types::*;
     use crate::someiptypes::*;
 
-    use std::borrow::Borrow;
-    use std::cell::Cell;
+    use std::borrow::{Borrow, BorrowMut};
+    use std::cell::{Cell, RefCell};
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -25,17 +25,6 @@ pub mod someip_packet_parser {
     /// 但是，在没有提供原始矩阵表的情况下，只能按照MessageType字段区分上述类型了
     ///
 
-    #[derive(Debug)]
-    enum SomeipSingleMessageType {
-        Request,
-        RequestWithoutResponse,
-        Response,
-        ResponseWithError,
-        Notification,
-        SdOffer,
-        SdSubscribe,
-        SdSubscribeAck,
-    }
 
     struct SomeipSingleMessage<'a> {
         index: PacketIndex,
@@ -52,7 +41,7 @@ pub mod someip_packet_parser {
     pub struct PacketParser {
         path: PathBuf,
         pnet_config: Config,
-        rx: Cell<Box<dyn datalink::DataLinkReceiver>>,
+        rx: RefCell<Box<dyn datalink::DataLinkReceiver>>,
     }
 
     pub fn init_from_path(path: PathBuf) -> PacketParser {
@@ -61,17 +50,17 @@ pub mod someip_packet_parser {
             path: path.clone(),
             pnet_config: config,
             rx: match datalink::pcap::from_file(path, &mut config) {
-                Ok(Ethernet(rx)) => rx,
+                Ok(Ethernet(rx)) => rx.into(),
                 Ok(_) => panic!("packetdump: unhandled channel type"),
                 Err(e) => panic!("packetdump: unable to create channel: {}", e),
             },
         }
     }
 
-    pub fn handle_packet_loop(pp: &mut PacketParser) {
+    pub fn handle_packet_loop(pp: &PacketParser) {
         let mut index = 0;
 
-        while let Ok((ts, pkt)) = (*pp).rx.next() {
+        while let Ok((ts, pkt)) = (*pp).rx.borrow_mut().next() {
             raw_packet_parser(pp.borrow(), ts, index, pkt);
             index += 1;
         }
@@ -121,6 +110,8 @@ pub mod someip_packet_parser {
                         session_id: pkt.get_session_id(),
                         message_type: SomeipSingleMessageType::Notification,
                         raw_packet: Box::new(pkt.packet()),
+                        index,
+                        transport_protocol: todo!(),
                     };
                     tmp.message_type = SomeipSingleMessageType::SdOffer;
                     tmp.service_id = entry.get_service_id();
@@ -185,7 +176,7 @@ pub mod someip_packet_parser {
             }
         };
 
-        match config.channel_type {
+        match pp.pnet_config.channel_type {
             datalink::ChannelType::Layer2 => handle_layer2_packet(pkt),
             datalink::ChannelType::Layer3(_) => handle_sll_packet(pkt),
         }

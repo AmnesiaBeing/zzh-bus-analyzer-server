@@ -8,9 +8,9 @@ extern crate clap;
 use clap::Parser;
 use pnet::datalink::Channel::Ethernet;
 
-use log::{debug, error, log_enabled, info, Level};
+use log::{debug, error, info, log_enabled, Level};
 
-use crate::someippacketparser::someip_packet_parser::init_from_path;
+use crate::someippacketparser::someip_packet_parser::{handle_packet_loop, init_from_path};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -62,11 +62,6 @@ fn main() {
     // 最大是0xFFFF，用u16即可
     // let filter_sid = u16::from_str_radix(&args.signals[2..], 16).unwrap();
 
-    let mut rx = match init_from_path(args.file.unwrap()) {
-        Ok(Ethernet(rx)) => rx,
-        Ok(_) => panic!("packetdump: unhandled channel type"),
-        Err(e) => panic!("packetdump: unable to create channel: {}", e),
-    };
-
-    // handle_packet_loop()
+    let pp = init_from_path(args.file.unwrap());
+    handle_packet_loop(&pp);
 }
