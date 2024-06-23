@@ -1,0 +1,27 @@
+{
+    "key": [
+        "DataType Name",
+        "DataType Description",
+        "DataType Category",
+        "String/Array Length Type",
+        "String/Array Length Min",
+        "String/Array Length Max",
+        "Member Position",
+        "Member Name",
+        "Member Description",
+        "Member Datatype Reference",
+        "Base Datatype",
+        "Resolution",
+        "Offset",
+        "Physical Min",
+        "Physical Max",
+        "Initial Value",
+        "Invalid Value",
+        "Unit",
+        "Discrete Value Defination",
+        "Remark",
+        "",
+        ""
+    ],
+    "data": []
+}
