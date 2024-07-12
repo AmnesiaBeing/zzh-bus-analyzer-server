@@ -1,6 +1,6 @@
-
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
+use std::rc::Rc;
 use std::time::Duration;
 
 pub type SomeipServiceId = u16;
@@ -13,6 +13,9 @@ pub type SomeipMinorVersion = u16;
 
 pub type PacketIndex = isize;
 
+pub type Port = u16;
+
+#[derive(Debug)]
 pub enum SomeipTransportPortocol {
     TCP,
     UDP,
@@ -49,6 +52,7 @@ pub struct SomeipMessage<'a> {
 
 // ------- For Matrix 下面的结构体适用于描述Someip矩阵
 
+#[derive(Debug)]
 pub enum MatrixServiceMethodType {
     RRMethod(RRMethod),
     FFMethod(FFMethod),
@@ -61,22 +65,28 @@ pub struct MatrixDataTypeDefinition {
     pub description: String,
 }
 
+pub type MatrixDataTypeDefinitionName = String;
+
 // 尽可能内存中只有一份payload的描述，因此都用box类型包裹
 
+#[derive(Debug)]
 pub struct RRMethod {
     data_in: Vec<Box<MatrixPayload>>,
     data_out: Box<MatrixPayload>,
 }
 
+#[derive(Debug)]
 pub struct FFMethod {
     data_in: Vec<Box<MatrixPayload>>,
 }
 
+#[derive(Debug)]
 pub struct EventMethod {
     data: Vec<Box<MatrixPayload>>,
 }
 
 // field类型中，setter、getter、notifier不一定是必须的，因此增加option进行修饰
+#[derive(Debug)]
 pub struct FieldMethod {
     // setter带payload，并且server的返回值也带payload，表示设置成功
     setter: Option<Box<MatrixPayload>>,
@@ -86,6 +96,7 @@ pub struct FieldMethod {
     notifier: Option<Box<MatrixPayload>>,
 }
 
+#[derive(Debug)]
 pub enum NumberSize {
     Boolean,
     Uint8,
@@ -100,6 +111,7 @@ pub enum NumberSize {
     Float64,
 }
 
+#[derive(Debug)]
 pub enum StringEncoding {
     UTF8,
     UTF16LE,
@@ -113,6 +125,7 @@ pub enum StringEncoding {
 /// 4. Array数组类型：所有可允许类型，可嵌套
 /// 5. Struct结构体类型：所有可允许类型，可嵌套
 /// 6. Union联合体类型：所有可允许的类型，可嵌套
+#[derive(Debug)]
 pub enum MatrixPayload {
     Number(NumberSize),
     String(StringEncoding),
@@ -121,6 +134,7 @@ pub enum MatrixPayload {
     Union(Vec<MatrixPayload>),
 }
 
+#[derive(Debug)]
 pub struct MatrixServiceMethod {
     method_id: SomeipMethodId,
     method_name: String,
@@ -128,13 +142,19 @@ pub struct MatrixServiceMethod {
     transport_protocol: SomeipTransportPortocol,
 }
 
+#[derive(Debug)]
 pub struct MatrixRole {
-    name: String,
-    ip_addr: IpAddr,
-    ip_netmask: IpAddr,
-    port: u16,
+    pub name: String,
+    pub ip_addr: IpAddr,
+    // pub mac_addr: IpAddr,
 }
 
+pub type RoleName = String;
+pub type ServerMatrixRole = MatrixRole;
+pub type ServerPort = Port;
+pub type ClientMatrixRole = MatrixRole;
+
+#[derive(Debug)]
 pub struct MatrixService {
     pub service_id: SomeipServiceId,
     pub service_name: String,
@@ -142,11 +162,9 @@ pub struct MatrixService {
     pub instance_id: SomeipInstantId,
     pub major_verison: SomeipMajorVersion,
     pub minor_version: SomeipMinorVersion,
-    pub methods: Vec<MatrixServiceMethod>,
-    // 应该不会有矩阵不同服务的相同server、client地址不同吧？
-    pub server: MatrixRole,
-    pub client: MatrixRole,
-    // TODO: 考虑是否要增加：vlan? remark?
+    // TODO: 如何存储MatrixServiceMethod，能够通过methodid实现快速查找
+    // pub methods: HashMap<SomeipMethodId, MatrixServiceMethod>,
+    pub server_client: Vec<(Rc<ServerMatrixRole>, ServerPort, Rc<ClientMatrixRole>)>,
 }
 
 pub enum MatrixSerializationParameterSize {
@@ -173,7 +191,7 @@ pub struct MatrixSerializationParameter {
 pub struct Matrix {
     pub version: String,
     pub service_interfaces: HashMap<SomeipServiceId, MatrixService>,
-    pub data_type_definition: Vec<MatrixDataTypeDefinition>,
+    pub data_type_definition: HashMap<MatrixDataTypeDefinitionName, MatrixDataTypeDefinition>,
     pub serialization_parameter: MatrixSerializationParameterSize,
-    // TODO: e2e_protection?
+    pub matrix_role: HashMap<RoleName, MatrixRole>,
 }

@@ -3,34 +3,51 @@
 pub mod matrix_loader {
 
     use std::collections::HashMap;
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::rc::Rc;
 
     use calamine::{open_workbook, Error, RangeDeserializerBuilder, Reader, Xlsx};
     use log::{debug, error, info, log_enabled, Level};
-    use serde::Deserialize;
+    use serde::{de, Deserialize, Deserializer};
 
     use crate::types::{
-        Matrix, MatrixService, SomeipInstantId, SomeipMajorVersion, SomeipMinorVersion,
-        SomeipServiceId,
+        ClientMatrixRole, Matrix, MatrixRole, MatrixService, ServerMatrixRole, SomeipInstantId,
+        SomeipMajorVersion, SomeipMinorVersion, SomeipServiceId,
     };
     use crate::types::{
         MatrixSerializationParameter, MatrixSerializationParameterSize, StringEncoding,
     };
 
+    fn deserialize_hex<'de, D>(deserializer: D) -> Result<u16, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: String = Deserialize::deserialize(deserializer)?;
+        u16::from_str_radix(s.trim_start_matches("0x"), 16).map_err(de::Error::custom)
+    }
+
     #[derive(Deserialize)]
     struct Record {
+        #[serde(rename = "Service InterFace Name")]
         service_interface_name: String,
-        service_id: Option<SomeipServiceId>,
-        instance_id: Option<SomeipInstantId>,
-        major_version: Option<SomeipMajorVersion>,
-        minor_version: Option<SomeipMinorVersion>,
+        #[serde(rename = "Service ID", deserialize_with = "deserialize_hex")]
+        service_id: u16,
+        #[serde(rename = "Instance ID", deserialize_with = "deserialize_hex")]
+        instance_id: u16,
+        #[serde(rename = "Major Version", deserialize_with = "deserialize_hex")]
+        major_version: u16,
+        #[serde(rename = "Minor Version", deserialize_with = "deserialize_hex")]
+        minor_version: u16,
+        #[serde(rename = "Server")]
         server: String,
+        #[serde(rename = "Server IP")]
         server_ip: String,
-        server_ip_subnetmask: String,
-        server_port: String,
+        #[serde(rename = "Server Port")]
+        server_port: u16,
+        #[serde(rename = "Client")]
         client: String,
+        #[serde(rename = "Client IP")]
         client_ip: String,
-        client_ip_subnetmask: String,
-        client_port: String,
     }
 
     #[test]
@@ -72,33 +89,90 @@ pub mod matrix_loader {
             "Minor Version",
             "Server",
             "Server IP",
-            "Server IP SubnetMask",
+            "Server MAC",
+            "Server Port",
+            "Client",
+            "Client IP",
+            "Client MAC",
         ])
         .from_range(&range)?;
 
         let mut services: HashMap<SomeipServiceId, MatrixService> = HashMap::new();
+        let mut roles: HashMap<String, Rc<MatrixRole>> = HashMap::new();
 
-        for result in iter_records.skip(1) {
+        for result in iter_records {
             let record: Record = result?;
-            if let Some(key) = record.service_id {
-                if !services.contains_key(&key) {
-                    services.insert(
-                        key,
-                        MatrixService {
-                            service_id: key,
-                            service_name: record.service_interface_name,
-                            service_description: "".to_string(),
-                            instance_id: todo!(),
-                            major_verison: todo!(),
-                            minor_version: todo!(),
-                            methods: todo!(),
-                            server: todo!(),
-                            client: todo!(),
-                        },
-                    );
-                }
+
+            // 获取或插入 server_role 和 client_role
+            let server_role = roles
+                .entry(record.server.clone())
+                .or_insert_with(|| {
+                    Rc::new(ServerMatrixRole {
+                        name: record.server.clone(),
+                        ip_addr: record
+                            .server_ip
+                            .parse()
+                            .unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
+                    })
+                })
+                .clone();
+
+            let client_role = roles
+                .entry(record.client.clone())
+                .or_insert_with(|| {
+                    Rc::new(ClientMatrixRole {
+                        name: record.client.clone(),
+                        ip_addr: record
+                            .client_ip
+                            .parse()
+                            .unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
+                    })
+                })
+                .clone();
+
+            let service = services
+                .entry(record.service_id)
+                .or_insert_with(|| MatrixService {
+                    service_id: record.service_id,
+                    service_name: record.service_interface_name.clone(),
+                    service_description: "".to_string(),
+                    instance_id: record.instance_id,
+                    major_verison: record.major_version,
+                    minor_version: record.minor_version,
+                    // methods: Vec::new(),
+                    server_client: vec![(
+                        Rc::clone(&server_role),
+                        record.server_port.clone(),
+                        Rc::clone(&client_role),
+                    )],
+                });
+
+            // 如果已经存在的 service，需要添加新的 server_client 对
+            if !service
+                .server_client
+                .iter()
+                .any(|(s, _, c)| Rc::ptr_eq(s, &server_role) && Rc::ptr_eq(c, &client_role))
+            {
+                service.server_client.push((
+                    server_role.clone(),
+                    record.server_port.clone(),
+                    client_role.clone(),
+                ));
             }
         }
+
+        println!("{:?}", &services.get(&0x5005).unwrap());
+        println!("{:?}", &services.get(&0x8008).unwrap());
+        println!("{:?}", &services.get(&0x8009).unwrap());
+        println!("{:?}", &services.get(&0x800A).unwrap());
+        println!("{:?}", &services.get(&0x1081).unwrap());
+        println!("{:?}", &services.get(&0x2038).unwrap());
+        println!("{:?}", &services.get(&0x2039).unwrap());
+        println!("{:?}", &services.get(&0x0029).unwrap());
+        println!("{:?}", &services.get(&0x106E).unwrap());
+        println!("{:?}", &services.get(&0x5025).unwrap());
+        println!("{:?}", &services.keys());
+        println!("{:?}", &services.len());
 
         let matrix_serialazion_parameter = MatrixSerializationParameter {
             alignment: MatrixSerializationParameterSize::B8,
