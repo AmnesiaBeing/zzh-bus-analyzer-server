@@ -320,6 +320,37 @@ pub mod matrix_loader {
                             }
                         },
                     }),
+                    "Integer" | "Enumeration" => MatrixDataType::Number(NumberPayload {
+                        size: match record.data_type.as_str() {
+                            "boolean" => NumberType::Boolean,
+                            "uint8" => NumberType::Uint8,
+                            "uint16" => NumberType::Uint16,
+                            "uint32" => NumberType::Uint32,
+                            "uint64" => NumberType::Uint64,
+                            "sint8" => NumberType::Sint8,
+                            "sint16" => NumberType::Sint16,
+                            "sint32" => NumberType::Sint32,
+                            "sint64" => NumberType::Sint64,
+                            _ => {
+                                error!("parse data type error: {}", record.data_type);
+                                panic!();
+                            }
+                        },
+                    }),
+                    "Float" => MatrixDataType::Number(NumberPayload { size: match record.data_type.as_str() {
+                        "float" => NumberType::Float32,
+                        _=> {
+                            error!("parse float error {}",record.data_type);
+                            panic!()
+                        }
+                    } }),
+                    "Double" => MatrixDataType::Number(NumberPayload { size: match record.data_type.as_str() {
+                        "double" => NumberType::Float64,
+                        _=> {
+                            error!("parse double error {}",record.data_type);
+                            panic!()
+                        }
+                    } }),
                     "Array" => MatrixDataType::Array(Box::new(ArrayPayload {
                         payload: match record.data_type.as_str() {
                             "boolean" => MatrixDataType::Number(NumberPayload {
