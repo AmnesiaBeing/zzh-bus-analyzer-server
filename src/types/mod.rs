@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::default;
 use std::net::IpAddr;
 use std::rc::{Rc, Weak};
 use std::time::Duration;
@@ -111,7 +112,7 @@ pub enum StringEncoding {
     UTF16BE,
 }
 
-pub type StringArrayLengthFixed= usize;
+pub type StringArrayLengthFixed = usize;
 pub type StringArrayLengthMin = usize;
 pub type StringArrayLengthMax = usize;
 
@@ -174,7 +175,9 @@ pub enum MatrixDataType {
     // 因为存在嵌套结构，这里考虑先读取成一个临时的String-Custom(String)/或MatrixDataTypeDefinition
     // 二轮处理时，如果遇到String，再将其转化为MatrixDataTypeDefinition
     // 这里是临时存储String，二轮处理再转换为上述结构体
-    Custom(MatrixDataTypeDefinitionName)
+    Custom(MatrixDataTypeDefinitionName),
+    // 未定义，初始化时使用，如果使用时遇到需要报错
+    Unimplemented,
 }
 
 #[derive(Debug)]
@@ -246,4 +249,22 @@ pub struct Matrix {
     pub data_type_definition: HashMap<MatrixDataTypeDefinitionName, Rc<MatrixDataTypeDefinition>>,
     pub serialization_parameter: MatrixSerializationParameter,
     pub matrix_role: HashMap<RoleName, Rc<MatrixRole>>,
+}
+
+// Defaults
+
+impl Default for MatrixDataTypeDefinition {
+    fn default() -> Self {
+        Self {
+            name: Default::default(),
+            description: Default::default(),
+            payload: Default::default(),
+        }
+    }
+}
+
+impl Default for MatrixDataType {
+    fn default() -> Self {
+        MatrixDataType::Custom("".to_string())
+    }
 }

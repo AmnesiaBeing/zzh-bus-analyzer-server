@@ -16,6 +16,7 @@ pub mod matrix_loader {
         MatrixDataTypeDefinitionName, MatrixRole, MatrixService, MatrixServiceMethod,
         NumberPayload, NumberType, ServerMatrixRole, SomeipInstantId, SomeipMajorVersion,
         SomeipMethodId, SomeipMinorVersion, SomeipServiceId, StringArrayLength, StringPayload,
+        StructPayload,
     };
     use crate::types::{
         MatrixSerializationParameter, MatrixSerializationParameterSize, StringEncoding,
@@ -86,9 +87,9 @@ pub mod matrix_loader {
         #[serde(rename = "String/Array Length Type")]
         string_array_length_type: String, // fixed or dynamic or invalid
         #[serde(rename = "String/Array Length Min")]
-        string_array_length_min: Option<usize>,
+        string_array_length_min: String,
         #[serde(rename = "String/Array Length Max")]
-        string_array_length_max: Option<usize>,
+        string_array_length_max: String,
         #[serde(rename = "Member Name")]
         member_name: String,
         #[serde(rename = "Member Description")]
@@ -293,149 +294,127 @@ pub mod matrix_loader {
                     continue;
                 }
 
-                match record.data_category.as_str() {
-                    "String" => MatrixDataType::String(StringPayload {
-                        length: match record.string_array_length_type.as_str() {
-                            "Fixed" => StringArrayLength::FIXED(0),
-                            // TODO: unwrap failed?
-                            "Dynamic" => StringArrayLength::DYNAMIC(
-                                record.string_array_length_min.unwrap(),
-                                record.string_array_length_max.unwrap(),
-                            ),
-                            // "/" "" 等，Array类型一定要有
-                            _ => {
-                                error!(
-                                    "parse length type error:{}",
-                                    record.string_array_length_type
-                                );
-                                panic!();
-                            }
-                        },
-                        encoding: match record.parameter_data_type_name.as_str() {
-                            "UTF-8" => StringEncoding::UTF8,
-                            "UTF-16" => StringEncoding::UTF16LE,
-                            _ => {
-                                error!("parse encoding error:{}", record.parameter_data_type_name);
-                                panic!()
-                            }
-                        },
-                    }),
-                    "Integer" | "Enumeration" => MatrixDataType::Number(NumberPayload {
-                        size: match record.data_type.as_str() {
-                            "boolean" => NumberType::Boolean,
-                            "uint8" => NumberType::Uint8,
-                            "uint16" => NumberType::Uint16,
-                            "uint32" => NumberType::Uint32,
-                            "uint64" => NumberType::Uint64,
-                            "sint8" => NumberType::Sint8,
-                            "sint16" => NumberType::Sint16,
-                            "sint32" => NumberType::Sint32,
-                            "sint64" => NumberType::Sint64,
-                            _ => {
-                                error!("parse data type error: {}", record.data_type);
-                                panic!();
-                            }
-                        },
-                    }),
-                    "Float" => MatrixDataType::Number(NumberPayload { size: match record.data_type.as_str() {
-                        "float" => NumberType::Float32,
-                        _=> {
-                            error!("parse float error {}",record.data_type);
-                            panic!()
-                        }
-                    } }),
-                    "Double" => MatrixDataType::Number(NumberPayload { size: match record.data_type.as_str() {
-                        "double" => NumberType::Float64,
-                        _=> {
-                            error!("parse double error {}",record.data_type);
-                            panic!()
-                        }
-                    } }),
-                    "Array" => MatrixDataType::Array(Box::new(ArrayPayload {
-                        payload: match record.data_type.as_str() {
-                            "boolean" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Boolean,
-                            }),
-                            "uint8" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Uint8,
-                            }),
-                            "uint16" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Uint16,
-                            }),
-                            "uint32" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Uint32,
-                            }),
-                            "uint64" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Uint64,
-                            }),
-                            "sint8" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Sint8,
-                            }),
-                            "sint16" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Sint16,
-                            }),
-                            "sint32" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Sint32,
-                            }),
-                            "sint64" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Sint64,
-                            }),
-                            "float" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Float32,
-                            }),
-                            "double" => MatrixDataType::Number(NumberPayload {
-                                size: NumberType::Float64,
-                            }),
-                            // 先用Custom(member_name)顶上，二轮处理
-                            // Member Datatype Reference 优先级高于 Member Name
-                            "Struct" => MatrixDataType::Custom(
-                                if record.member_data_type_reference.is_empty()
-                                    || record.member_data_type_reference.starts_with("/")
-                                {
-                                    record.member_name
-                                } else {
-                                    record.member_data_type_reference
-                                },
-                            ),
-                            // Array类型下不会出现Array和Union
-                            // "Array"=> MatrixDataType::Array(()),
-                            // "Union"=>MatrixDataType::Union(()),
-                            _ => {
-                                error!("parse data type error: {}", record.data_type);
-                                panic!();
-                            }
-                        },
-                        length: match record.string_array_length_type.as_str() {
-                            "Fixed" => StringArrayLength::FIXED(0),
-                            // TODO: unwrap failed?
-                            "Dynamic" => StringArrayLength::DYNAMIC(
-                                record.string_array_length_min.unwrap(),
-                                record.string_array_length_max.unwrap(),
-                            ),
-                            // "/" "" 等，Array类型一定要有
-                            _ => {
-                                error!(
-                                    "parse length type error:{}",
-                                    record.string_array_length_type
-                                );
-                                panic!();
-                            }
-                        },
-                    })),
-                    _ => {
-                        error!("parse data category error:{}", record.data_category);
-                        panic!();
-                    }
-                };
-
                 // 对于非Struct类型，可直接添加新的一个结构体，对于Struct类型，可能需要重复添加结构体
                 let data_type: &mut MatrixDataTypeDefinition = data_type_definitions
                     .entry(record.parameter_data_type_name.clone())
                     .or_insert_with(|| MatrixDataTypeDefinition {
                         name: record.parameter_data_type_name.clone(),
                         description: record.data_type_description.clone(),
-                        payload: todo!(),
+                        payload: MatrixDataType::Unimplemented,
                     });
+
+                // 一些便于解析的小函数
+                let parse_string_array_length =
+                    |record: DataTypeDefinitionRecord| -> StringArrayLength {
+                        match record.string_array_length_type.as_str() {
+                            "Fixed" => StringArrayLength::FIXED(0),
+                            // TODO: unwrap failed?
+                            "Dynamic" => StringArrayLength::DYNAMIC(
+                                record.string_array_length_min.parse::<usize>().unwrap(),
+                                record.string_array_length_max.parse::<usize>().unwrap(),
+                            ),
+                            _ => {
+                                error!(
+                                    "parse length type error:{}",
+                                    record.string_array_length_type
+                                );
+                                panic!();
+                            }
+                        }
+                    };
+
+                match record.data_category.to_lowercase().as_str() {
+                    "string" => {
+                        data_type.payload = MatrixDataType::String(StringPayload {
+                            length: parse_string_array_length(record),
+                            encoding: match record.parameter_data_type_name.as_str() {
+                                "UTF-8" => StringEncoding::UTF8,
+                                "UTF-16" => StringEncoding::UTF16LE,
+                                _ => {
+                                    error!(
+                                        "parse encoding error:{}",
+                                        record.parameter_data_type_name
+                                    );
+                                    panic!()
+                                }
+                            },
+                        });
+                    }
+                    // TODO: enumeration? 是否考虑自动解析，或者不解析
+                    "integer" | "enumeration" | "float" | "double" => {
+                        // TODO: offset min max ...
+                        data_type.payload = MatrixDataType::Number(NumberPayload {
+                            size: match record.data_type.as_str() {
+                                "boolean" => NumberType::Boolean,
+                                "uint8" => NumberType::Uint8,
+                                "uint16" => NumberType::Uint16,
+                                "uint32" => NumberType::Uint32,
+                                "uint64" => NumberType::Uint64,
+                                "sint8" => NumberType::Sint8,
+                                "sint16" => NumberType::Sint16,
+                                "sint32" => NumberType::Sint32,
+                                "sint64" => NumberType::Sint64,
+                                "float" => NumberType::Float32,
+                                "double" => NumberType::Float64,
+                                _ => {
+                                    error!("parse data type error: {}", record.data_type);
+                                    panic!();
+                                }
+                            },
+                        })
+                    }
+
+                    "array" => {
+                        // 先处理特殊情况
+                        if record.data_type.to_lowercase().as_str() == "struct" {
+                            // 先用Custom(member_name)顶上，二轮处理
+                            // Member Datatype Reference 优先级高于 Member Name
+                            data_type.payload = MatrixDataType::Array(Box::new(ArrayPayload {
+                                payload: MatrixDataType::Custom(
+                                    if record.member_data_type_reference.is_empty()
+                                        || record.member_data_type_reference.starts_with("/")
+                                    {
+                                        record.member_name
+                                    } else {
+                                        record.member_data_type_reference
+                                    },
+                                ),
+                                length: parse_string_array_length(record),
+                            }));
+                        } else {
+                            data_type.payload = MatrixDataType::Array(Box::new(ArrayPayload {
+                                payload: MatrixDataType::Number(NumberPayload {
+                                    size: match record.data_type.as_str() {
+                                        "boolean" => NumberType::Boolean,
+                                        "uint8" => NumberType::Uint8,
+                                        "uint16" => NumberType::Uint16,
+                                        "uint32" => NumberType::Uint32,
+                                        "uint64" => NumberType::Uint64,
+                                        "sint8" => NumberType::Sint8,
+                                        "sint16" => NumberType::Sint16,
+                                        "sint32" => NumberType::Sint32,
+                                        "sint64" => NumberType::Sint64,
+                                        "float" => NumberType::Float32,
+                                        "double" => NumberType::Float64,
+                                        _ => {
+                                            error!("parse data type error: {}", record.data_type);
+                                            panic!();
+                                        }
+                                    },
+                                }),
+                                length: parse_string_array_length(record),
+                            }));
+                        }
+                    }
+                    // TODO: 对于Struct类型，应该如何避免多次处理？
+                    "struct" => {
+                        MatrixDataType::Struct(Box::new(StructPayload { payload: todo!() }))
+                    }
+                    _ => {
+                        error!("parse data category error:{}", record.data_category);
+                        panic!();
+                    }
+                };
             }
 
             // Fill Methods
