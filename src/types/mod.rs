@@ -149,7 +149,7 @@ pub struct ArrayPayload {
 
 #[derive(Debug)]
 pub struct StructPayload {
-    pub payload: Vec<MatrixDataTypeDefinition>,
+    pub payload: RefCell<Vec<MatrixDataTypeDefinition>>,
 }
 
 pub type MatrixDataTypeDefinitionName = String;

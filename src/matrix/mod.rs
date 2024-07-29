@@ -290,6 +290,8 @@ pub mod matrix_loader {
             for result in iter_records {
                 let record: DataTypeDefinitionRecord = result?;
 
+                info!("{:?}", record.data_type);
+
                 // 跳过空行
                 if record.parameter_data_type_name.is_empty() {
                     continue;
@@ -301,7 +303,9 @@ pub mod matrix_loader {
                     .or_insert_with(|| MatrixDataTypeDefinition {
                         name: record.parameter_data_type_name.clone(),
                         description: record.data_type_description.clone(),
-                        payload: MatrixDataType::Unimplemented,
+                        payload: MatrixDataType::Struct(Box::new(StructPayload {
+                            payload: RefCell::new(Vec::new()),
+                        })),
                     });
 
                 // 一些便于解析的小函数
@@ -325,6 +329,17 @@ pub mod matrix_loader {
                     };
 
                 match record.data_category.to_lowercase().as_str() {
+                    // 优先处理struct类型
+                    "struct" => match &data_type.payload {
+                        MatrixDataType::Struct(s) => {
+                            s.payload.borrow_mut().push(MatrixDataTypeDefinition {
+                                name: record.member_name.clone(),
+                                description: record.member_description.clone(),
+                                payload: MatrixDataType::Custom(record.data_type.clone()),
+                            });
+                        }
+                        _ => {}
+                    },
                     "string" => {
                         data_type.payload = MatrixDataType::String(StringPayload {
                             length: parse_string_array_length(&record),
@@ -345,7 +360,7 @@ pub mod matrix_loader {
                     "integer" | "enumeration" | "float" | "double" => {
                         // TODO: offset min max ...
                         data_type.payload = MatrixDataType::Number(NumberPayload {
-                            size: match record.data_type.as_str() {
+                            size: match record.data_type.to_lowercase().as_str() {
                                 "boolean" => NumberType::Boolean,
                                 "uint8" => NumberType::Uint8,
                                 "uint16" => NumberType::Uint16,
