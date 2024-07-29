@@ -2,6 +2,7 @@
 /// TODO: load/save json
 pub mod matrix_loader {
 
+    use std::cell::RefCell;
     use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::Path;
@@ -305,7 +306,7 @@ pub mod matrix_loader {
 
                 // 一些便于解析的小函数
                 let parse_string_array_length =
-                    |record: DataTypeDefinitionRecord| -> StringArrayLength {
+                    |record: &DataTypeDefinitionRecord| -> StringArrayLength {
                         match record.string_array_length_type.as_str() {
                             "Fixed" => StringArrayLength::FIXED(0),
                             // TODO: unwrap failed?
@@ -326,7 +327,7 @@ pub mod matrix_loader {
                 match record.data_category.to_lowercase().as_str() {
                     "string" => {
                         data_type.payload = MatrixDataType::String(StringPayload {
-                            length: parse_string_array_length(record),
+                            length: parse_string_array_length(&record),
                             encoding: match record.parameter_data_type_name.as_str() {
                                 "UTF-8" => StringEncoding::UTF8,
                                 "UTF-16" => StringEncoding::UTF16LE,
@@ -363,7 +364,6 @@ pub mod matrix_loader {
                             },
                         })
                     }
-
                     "array" => {
                         // 先处理特殊情况
                         if record.data_type.to_lowercase().as_str() == "struct" {
@@ -374,12 +374,12 @@ pub mod matrix_loader {
                                     if record.member_data_type_reference.is_empty()
                                         || record.member_data_type_reference.starts_with("/")
                                     {
-                                        record.member_name
+                                        record.member_name.clone()
                                     } else {
-                                        record.member_data_type_reference
+                                        record.member_data_type_reference.clone()
                                     },
                                 ),
-                                length: parse_string_array_length(record),
+                                length: parse_string_array_length(&record),
                             }));
                         } else {
                             data_type.payload = MatrixDataType::Array(Box::new(ArrayPayload {
@@ -402,13 +402,32 @@ pub mod matrix_loader {
                                         }
                                     },
                                 }),
-                                length: parse_string_array_length(record),
+                                length: parse_string_array_length(&record),
                             }));
                         }
                     }
-                    // TODO: 对于Struct类型，应该如何避免多次处理？
+                    // TODO: 对于Struct类型，应该判断是否已经解析过同名结构，如果已经有了，直接按照membername添加成员即可
                     "struct" => {
-                        MatrixDataType::Struct(Box::new(StructPayload { payload: todo!() }))
+                        let tmp = MatrixDataTypeDefinition {
+                            name: record.member_name,
+                            description: record.member_description,
+                            payload: MatrixDataType::Custom(record.data_type.clone()),
+                        };
+                        match &data_type.payload {
+                            MatrixDataType::Struct(s) => {
+                                s.get_mut().payload.push(tmp);
+                            }
+                            MatrixDataType::Unimplemented => {
+                                data_type.payload =
+                                    MatrixDataType::Struct(RefCell::new(StructPayload {
+                                        payload: vec![tmp],
+                                    }));
+                            }
+                            _ => {
+                                error!("parse struct type error: {}", record.data_type);
+                                panic!();
+                            }
+                        }
                     }
                     _ => {
                         error!("parse data category error:{}", record.data_category);

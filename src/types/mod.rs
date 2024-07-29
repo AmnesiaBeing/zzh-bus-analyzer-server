@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::default;
 use std::net::IpAddr;
@@ -169,7 +170,7 @@ pub enum MatrixDataType {
     // 下面的类型需要使用按顺序的类型，否则影响解析
     Array(Box<ArrayPayload>),
     // ArrayStruct(Box<ArrayStuctPayload>),
-    Struct(Box<StructPayload>),
+    Struct(RefCell<StructPayload>),
     // 实际上在矩阵中并没有使用，先屏蔽处理
     // Union(Vec<MatrixDataTypeDefinition>),
     // 因为存在嵌套结构，这里考虑先读取成一个临时的String-Custom(String)/或MatrixDataTypeDefinition
