@@ -3,6 +3,7 @@
 mod args;
 mod matrix;
 mod types;
+mod test;
 
 use args::get_args;
 use log::{error, info};

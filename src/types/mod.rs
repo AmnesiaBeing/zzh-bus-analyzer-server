@@ -5,6 +5,8 @@ use std::net::IpAddr;
 use std::rc::{Rc, Weak};
 use std::time::Duration;
 
+use log::error;
+
 pub type SomeipServiceId = u16;
 pub type SomeipMethodId = u16;
 pub type SomeipClientId = u16;
@@ -147,10 +149,10 @@ pub struct ArrayPayload {
 //     pub length: StringArrayLength,
 // }
 
-#[derive(Debug)]
-pub struct StructPayload {
-    pub payload: RefCell<Vec<MatrixDataTypeDefinition>>,
-}
+// #[derive(Debug)]
+// pub struct StructPayload {
+//     pub payload: RefCell<Vec<MatrixDataTypeDefinition>>,
+// }
 
 pub type MatrixDataTypeDefinitionName = String;
 
@@ -170,7 +172,9 @@ pub enum MatrixDataType {
     // 下面的类型需要使用按顺序的类型，否则影响解析
     Array(Box<ArrayPayload>),
     // ArrayStruct(Box<ArrayStuctPayload>),
-    Struct(RefCell<StructPayload>),
+    Struct {
+        vec: RefCell<Vec<Rc<MatrixDataTypeDefinition>>>,
+    },
     // 实际上在矩阵中并没有使用，先屏蔽处理
     // Union(Vec<MatrixDataTypeDefinition>),
     // 因为存在嵌套结构，这里考虑先读取成一个临时的String-Custom(String)/或MatrixDataTypeDefinition
@@ -178,7 +182,27 @@ pub enum MatrixDataType {
     // 这里是临时存储String，二轮处理再转换为上述结构体
     Custom(MatrixDataTypeDefinitionName),
     // 未定义，初始化时使用，如果使用时遇到需要报错
-    Unimplemented,
+    // 未定义使用Custom空字符串即可
+    // Unimplemented,
+}
+
+impl MatrixDataType {
+    pub fn push_struct_datatype(&mut self, new_datatype: Rc<MatrixDataTypeDefinition>) {
+        match self {
+            MatrixDataType::Struct { ref vec } => {
+                vec.borrow_mut().push(new_datatype);
+            }
+            MatrixDataType::Custom(_) => {
+                *self = MatrixDataType::Struct {
+                    vec: RefCell::new(vec![new_datatype]),
+                }
+            }
+            _ => {
+                error!("push_struct_datatype error, orin type:{:?}", self);
+                panic!();
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -252,8 +276,11 @@ pub struct Matrix {
     pub matrix_role: HashMap<RoleName, Rc<MatrixRole>>,
 }
 
-// Defaults
+impl Matrix {
+    
+}
 
+// Defaults
 impl Default for MatrixDataTypeDefinition {
     fn default() -> Self {
         Self {
