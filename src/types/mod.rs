@@ -5,6 +5,7 @@ use std::net::IpAddr;
 use std::rc::{Rc, Weak};
 use std::time::Duration;
 
+use clap::builder::Str;
 use log::error;
 
 pub type SomeipServiceId = u16;
@@ -68,29 +69,29 @@ pub enum MatrixServiceMethodType {
 
 #[derive(Debug)]
 pub struct RRMethod {
-    data_in: Vec<Box<MatrixDataTypeDefinition>>,
-    data_out: Box<MatrixDataTypeDefinition>,
+    data_in: Vec<MatrixDataTypeDefinitionTreeNodeRef>,
+    data_out: MatrixDataTypeDefinitionTreeNodeRef,
 }
 
 #[derive(Debug)]
 pub struct FFMethod {
-    data_in: Vec<Box<MatrixDataTypeDefinition>>,
+    data_in: Vec<MatrixDataTypeDefinitionTreeNodeRef>,
 }
 
 #[derive(Debug)]
 pub struct EventMethod {
-    data: Vec<Box<MatrixDataTypeDefinition>>,
+    data: Vec<MatrixDataTypeDefinitionTreeNodeRef>,
 }
 
 // field类型中，setter、getter、notifier不一定是必须的，因此增加option进行修饰
 #[derive(Debug)]
 pub struct FieldMethod {
     // setter带payload，并且server的返回值也带payload，表示设置成功
-    setter: Option<Box<MatrixDataTypeDefinition>>,
+    setter: Option<MatrixDataTypeDefinitionTreeNodeRef>,
     // getter，client发送不带payload，server返回值带，可以认为是event的变种
-    getter: Option<Box<MatrixDataTypeDefinition>>,
+    getter: Option<MatrixDataTypeDefinitionTreeNodeRef>,
     // notifier，没有client，只有server发payload过来
-    notifier: Option<Box<MatrixDataTypeDefinition>>,
+    notifier: Option<MatrixDataTypeDefinitionTreeNodeRef>,
 }
 
 #[derive(Debug)]
@@ -125,23 +126,23 @@ pub enum StringArrayLength {
     DYNAMIC(StringArrayLengthMin, StringArrayLengthMax),
 }
 
-#[derive(Debug)]
-pub struct NumberPayload {
-    pub size: NumberType,
-    // TODO: Initial/Invalid Value Offset Min Max
-}
+// #[derive(Debug)]
+// pub struct NumberPayload {
+//     pub size: NumberType,
+//     // TODO: Initial/Invalid Value Offset Min Max
+// }
 
-#[derive(Debug)]
-pub struct StringPayload {
-    pub length: StringArrayLength,
-    pub encoding: StringEncoding,
-}
+// #[derive(Debug)]
+// pub struct StringPayload {
+//     pub length: StringArrayLength,
+//     pub encoding: StringEncoding,
+// }
 
-#[derive(Debug)]
-pub struct ArrayPayload {
-    pub payload: MatrixDataType,
-    pub length: StringArrayLength,
-}
+// #[derive(Debug)]
+// pub struct ArrayPayload {
+//     pub payload: MatrixDataType,
+//     pub length: StringArrayLength,
+// }
 
 // #[derive(Debug)]
 // pub struct ArrayStuctPayload {
@@ -154,8 +155,6 @@ pub struct ArrayPayload {
 //     pub payload: RefCell<Vec<MatrixDataTypeDefinition>>,
 // }
 
-pub type MatrixDataTypeDefinitionName = String;
-
 /// 根据Someip规范，payload的数据类型有且仅有：
 /// 1. Integer数值类型：u8,u16,u32,u64,i8,i16,i32,i64,f32,f64
 /// 2. String字符串类型：UTF-8,UTF-16LE,UTF-16BE
@@ -163,53 +162,81 @@ pub type MatrixDataTypeDefinitionName = String;
 /// 4. Array数组类型：所有可允许类型，可嵌套
 /// 5. Struct结构体类型：所有可允许类型，可嵌套
 /// 6. Union联合体类型：所有可允许的类型，可嵌套
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum MatrixDataType {
-    Number(NumberPayload),
-    String(StringPayload),
+    Number {
+        size: NumberType,
+    },
+    String {
+        encoding: StringEncoding,
+        length: StringArrayLength,
+    },
     // TODO: Enumeration如何处理，其实很多Integer类型实际是Enumeration类型
     // Enumeration(),
     // 下面的类型需要使用按顺序的类型，否则影响解析
-    Array(Box<ArrayPayload>),
-    // ArrayStruct(Box<ArrayStuctPayload>),
-    Struct {
-        vec: RefCell<Vec<Rc<MatrixDataTypeDefinition>>>,
+    Array {
+        length: StringArrayLength,
     },
+    // ArrayStruct(Box<ArrayStuctPayload>),
+    #[default]
+    Struct,
     // 实际上在矩阵中并没有使用，先屏蔽处理
     // Union(Vec<MatrixDataTypeDefinition>),
     // 因为存在嵌套结构，这里考虑先读取成一个临时的String-Custom(String)/或MatrixDataTypeDefinition
     // 二轮处理时，如果遇到String，再将其转化为MatrixDataTypeDefinition
     // 这里是临时存储String，二轮处理再转换为上述结构体
-    Custom(MatrixDataTypeDefinitionName),
+    // Custom(MatrixDataTypeDefinitionName),
     // 未定义，初始化时使用，如果使用时遇到需要报错
     // 未定义使用Custom空字符串即可
     // Unimplemented,
 }
 
-impl MatrixDataType {
-    pub fn push_struct_datatype(&mut self, new_datatype: Rc<MatrixDataTypeDefinition>) {
-        match self {
-            MatrixDataType::Struct { ref vec } => {
-                vec.borrow_mut().push(new_datatype);
-            }
-            MatrixDataType::Custom(_) => {
-                *self = MatrixDataType::Struct {
-                    vec: RefCell::new(vec![new_datatype]),
-                }
-            }
-            _ => {
-                error!("push_struct_datatype error, orin type:{:?}", self);
-                panic!();
-            }
-        }
-    }
+// impl MatrixDataType {
+//     pub fn push_struct_datatype(&mut self, new_datatype: Rc<MatrixDataTypeDefinition>) {
+//         match self {
+//             MatrixDataType::Struct { ref vec } => {
+//                 vec.borrow_mut().push(new_datatype);
+//             }
+//             MatrixDataType::Custom(_) => {
+//                 *self = MatrixDataType::Struct {
+//                     vec: RefCell::new(vec![new_datatype]),
+//                 }
+//             }
+//             _ => {
+//                 error!("push_struct_datatype error, orin type:{:?}", self);
+//                 panic!();
+//             }
+//         }
+//     }
+// }
+
+#[derive(Debug, Default)]
+pub struct MatrixDataTypeDefinitionTreeNode {
+    pub name: String,
+    pub description: String,
+    pub data_type: MatrixDataType,
+    pub children: Vec<MatrixDataTypeDefinitionTreeNodeRef>,
 }
 
-#[derive(Debug)]
-pub struct MatrixDataTypeDefinition {
-    pub name: MatrixDataTypeDefinitionName,
-    pub description: String,
-    pub payload: MatrixDataType,
+pub type MatrixDataTypeDefinitionTreeNodeRef = Rc<MatrixDataTypeDefinitionTreeNode>;
+
+impl MatrixDataTypeDefinitionTreeNode {
+    fn new(name: String, description: String) -> Self {
+        MatrixDataTypeDefinitionTreeNode {
+            name: name,
+            description: description,
+            data_type: Default::default(),
+            children: Default::default(),
+        }
+    }
+
+    fn add_child(&mut self, child: MatrixDataTypeDefinitionTreeNodeRef) {
+        self.children.push(child);
+    }
+
+    fn get_child(&self, name: &str) -> Option<&MatrixDataTypeDefinitionTreeNodeRef> {
+        self.children.iter().find(|&iter| iter.name == name)
+    }
 }
 
 #[derive(Debug)]
@@ -271,28 +298,17 @@ pub struct Matrix {
     pub version: String,
     // TODO: map by id or name?
     pub service_interfaces: HashMap<SomeipServiceId, MatrixService>,
-    pub data_type_definition: HashMap<MatrixDataTypeDefinitionName, Rc<MatrixDataTypeDefinition>>,
+    pub data_type_definition: Vec<MatrixDataTypeDefinitionTreeNodeRef>,
     pub serialization_parameter: MatrixSerializationParameter,
     pub matrix_role: HashMap<RoleName, Rc<MatrixRole>>,
 }
 
 impl Matrix {
-    
-}
+    // pub fn get_data_type_definition_or_insert_with(&self,name:&str)->&mut MatrixDataTypeDefinitionTreeNodeRef{
+    //     self.data_type_definition.iter().find(predicate)
+    // }
 
-// Defaults
-impl Default for MatrixDataTypeDefinition {
-    fn default() -> Self {
-        Self {
-            name: Default::default(),
-            description: Default::default(),
-            payload: Default::default(),
-        }
-    }
-}
+    // TODO: 给定一个点分+方括号字符串，找到整个链路？
 
-impl Default for MatrixDataType {
-    fn default() -> Self {
-        MatrixDataType::Custom("".to_string())
-    }
+    // TODO: 模糊查找链路可能的位置？
 }

@@ -94,7 +94,7 @@ fn build_tree_vec(keys: &Vec<Vec<String>>, levels: usize, current_level: usize) 
 #[test]
 fn main() {
     let levels = 3; // 树的层数（2至4层，可以调整）
-    let max_children = 600; // 每个节点的最大子节点数
+    let max_children = 100; // 每个节点的最大子节点数
     let keys = generate_keys(levels, max_children); // 生成随机键列表
     let search_key = keys[0][0].clone(); // 从生成的键中选择一个作为搜索的key
 

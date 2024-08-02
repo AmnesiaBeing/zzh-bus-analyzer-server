@@ -3,7 +3,7 @@
 pub mod matrix_loader {
 
     use std::cell::RefCell;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::Path;
     use std::rc::{Rc, Weak};
@@ -13,10 +13,7 @@ pub mod matrix_loader {
     use serde::{de, Deserialize, Deserializer};
 
     use crate::types::{
-        ArrayPayload, ClientMatrixRole, Matrix, MatrixDataType, MatrixDataTypeDefinition,
-        MatrixDataTypeDefinitionName, MatrixRole, MatrixService, MatrixServiceMethod,
-        NumberPayload, NumberType, ServerMatrixRole, SomeipInstantId, SomeipMajorVersion,
-        SomeipMethodId, SomeipMinorVersion, SomeipServiceId, StringArrayLength, StringPayload,
+        ClientMatrixRole, Matrix, MatrixDataType, MatrixDataTypeDefinitionTreeNode, MatrixDataTypeDefinitionTreeNodeRef, MatrixRole, MatrixService, NumberType, ServerMatrixRole, SomeipServiceId, StringArrayLength
     };
     use crate::types::{
         MatrixSerializationParameter, MatrixSerializationParameterSize, StringEncoding,
@@ -258,313 +255,310 @@ pub mod matrix_loader {
             info!("Fill Services Completed.");
 
             // Fill Data Type
-            // let range = wb.worksheet_range("DataTypeDefinition").unwrap();
-            // let iter_records = RangeDeserializerBuilder::with_headers(&[
-            //     "Parameter Data Type Name",
-            //     "DataType Description",
-            //     "Data Category",
-            //     "String/Array Length Type",
-            //     "String/Array Length Min",
-            //     "String/Array Length Max",
-            //     "Member Name",
-            //     "Member Description",
-            //     "Member Datatype Reference",
-            //     "Datatype",
-            //     // "Resolution",
-            //     // "Offset",
-            //     // "Physical Min",
-            //     // "Physical Max",
-            //     // "Initial Value",
-            //     // "Invalid Value",
-            //     // "Unit",
-            //     // "Discrete Value Defination",
-            // ])
-            // .from_range(&range)?;
+            let range = wb.worksheet_range("DataTypeDefinition").unwrap();
+            let iter_records = RangeDeserializerBuilder::with_headers(&[
+                "Parameter Data Type Name",
+                "DataType Description",
+                "Data Category",
+                "String/Array Length Type",
+                "String/Array Length Min",
+                "String/Array Length Max",
+                "Member Name",
+                "Member Description",
+                "Member Datatype Reference",
+                "Datatype",
+                // "Resolution",
+                // "Offset",
+                // "Physical Min",
+                // "Physical Max",
+                // "Initial Value",
+                // "Invalid Value",
+                // "Unit",
+                // "Discrete Value Defination",
+            ])
+            .from_range(&range)?;
 
-            // let mut data_type_definitions: HashMap<
-            //     MatrixDataTypeDefinitionName,
-            //     Rc<MatrixDataTypeDefinition>,
-            // > = HashMap::new();
+            let mut data_type_definitions: HashSet<MatrixDataTypeDefinitionTreeNodeRef> = HashSet::new();
 
-            // for result in iter_records {
-            //     let record: DataTypeDefinitionRecord = match result {
-            //         Ok(ret) => ret,
-            //         Err(err) => {
-            //             debug!("parse record error:{:?}", err);
-            //             panic!()
-            //         }
-            //     };
+            for result in iter_records {
+                let record: DataTypeDefinitionRecord = match result {
+                    Ok(ret) => ret,
+                    Err(err) => {
+                        debug!("parse record error:{:?}", err);
+                        panic!()
+                    }
+                };
 
-            //     // 跳过空行
-            //     if record.parameter_data_type_name.is_none() {
-            //         debug!("parameter_data_type_name is empty, perhaps empty row, skip.");
-            //         continue;
-            //     }
-            //     let record_parameter_data_type_name =
-            //         record.parameter_data_type_name.clone().unwrap();
+                // 跳过空行
+                if record.parameter_data_type_name.is_none() {
+                    debug!("parameter_data_type_name is empty, perhaps empty row, skip.");
+                    continue;
+                }
+                let record_parameter_data_type_name =
+                    record.parameter_data_type_name.clone().unwrap();
 
-            //     debug!(
-            //         "name:{:?}, category:{:?}",
-            //         record.parameter_data_type_name, record.data_category
-            //     );
+                debug!(
+                    "name:{:?}, category:{:?}",
+                    record.parameter_data_type_name, record.data_category
+                );
 
-            //     let record_data_type_description = record
-            //         .data_type_description
-            //         .clone()
-            //         .unwrap_or_else(|| "".to_string())
-            //         .to_lowercase();
+                let record_data_type_description = record
+                    .data_type_description
+                    .clone()
+                    .unwrap_or_else(|| "".to_string())
+                    .to_lowercase();
 
-            //     if record.data_category.is_none() {
-            //         debug!(
-            //             "data_category is empty, sth error. parameter_data_type_name:{:?}",
-            //             record_parameter_data_type_name
-            //         );
-            //         panic!()
-            //     }
-            //     let record_data_category = record.data_category.clone().unwrap().to_lowercase();
+                if record.data_category.is_none() {
+                    debug!(
+                        "data_category is empty, sth error. parameter_data_type_name:{:?}",
+                        record_parameter_data_type_name
+                    );
+                    panic!()
+                }
+                let record_data_category = record.data_category.clone().unwrap().to_lowercase();
 
-            //     let record_data_type = record
-            //         .data_type
-            //         .clone()
-            //         .unwrap_or_else(|| "".to_string())
-            //         .to_lowercase();
+                let record_data_type = record
+                    .data_type
+                    .clone()
+                    .unwrap_or_else(|| "".to_string())
+                    .to_lowercase();
 
-            //     // 一些便于解析的小函数
-            //     let parse_string_array_length =
-            //         |record: &DataTypeDefinitionRecord| -> StringArrayLength {
-            //             // TODO: handle panic
-            //             match record.string_array_length_type.clone().unwrap().as_str() {
-            //                 "Fixed" => StringArrayLength::FIXED(0),
-            //                 // TODO: unwrap failed?
-            //                 "Dynamic" => StringArrayLength::DYNAMIC(
-            //                     record
-            //                         .string_array_length_min
-            //                         .clone()
-            //                         .unwrap()
-            //                         .parse::<usize>()
-            //                         .unwrap(),
-            //                     record
-            //                         .string_array_length_max
-            //                         .clone()
-            //                         .unwrap()
-            //                         .parse::<usize>()
-            //                         .unwrap(),
-            //                 ),
-            //                 _ => {
-            //                     error!(
-            //                         "parse length type error:{}",
-            //                         record.string_array_length_type.clone().unwrap()
-            //                     );
-            //                     panic!();
-            //                 }
-            //             }
-            //         };
+                // 一些便于解析的小函数
+                let parse_string_array_length =
+                    |record: &DataTypeDefinitionRecord| -> StringArrayLength {
+                        // TODO: handle panic
+                        match record.string_array_length_type.clone().unwrap().as_str() {
+                            "Fixed" => StringArrayLength::FIXED(0),
+                            // TODO: unwrap failed?
+                            "Dynamic" => StringArrayLength::DYNAMIC(
+                                record
+                                    .string_array_length_min
+                                    .clone()
+                                    .unwrap()
+                                    .parse::<usize>()
+                                    .unwrap(),
+                                record
+                                    .string_array_length_max
+                                    .clone()
+                                    .unwrap()
+                                    .parse::<usize>()
+                                    .unwrap(),
+                            ),
+                            _ => {
+                                error!(
+                                    "parse length type error:{}",
+                                    record.string_array_length_type.clone().unwrap()
+                                );
+                                panic!();
+                            }
+                        }
+                    };
 
-            //     let parse_number_data_type = |record_data_type: &String| -> Option<MatrixDataType> {
-            //         Some(MatrixDataType::Number(NumberPayload {
-            //             size: match record_data_type.as_str() {
-            //                 "boolean" => NumberType::Boolean,
-            //                 "uint8" => NumberType::Uint8,
-            //                 "uint16" => NumberType::Uint16,
-            //                 "uint32" => NumberType::Uint32,
-            //                 "uint64" => NumberType::Uint64,
-            //                 "sint8" => NumberType::Sint8,
-            //                 "sint16" => NumberType::Sint16,
-            //                 "sint32" => NumberType::Sint32,
-            //                 "sint64" => NumberType::Sint64,
-            //                 "float" => NumberType::Float32,
-            //                 "double" => NumberType::Float64,
-            //                 _ => return None,
-            //             },
-            //         }))
-            //     };
+                let parse_number_data_type = |record_data_type: &String| -> Option<MatrixDataType> {
+                    Some(MatrixDataType::Number {
+                        size: match record_data_type.as_str() {
+                            "boolean" => NumberType::Boolean,
+                            "uint8" => NumberType::Uint8,
+                            "uint16" => NumberType::Uint16,
+                            "uint32" => NumberType::Uint32,
+                            "uint64" => NumberType::Uint64,
+                            "sint8" => NumberType::Sint8,
+                            "sint16" => NumberType::Sint16,
+                            "sint32" => NumberType::Sint32,
+                            "sint64" => NumberType::Sint64,
+                            "float" => NumberType::Float32,
+                            "double" => NumberType::Float64,
+                            _ => return None,
+                        },
+                    })
+                };
 
-            //     let parse_struct_category_member =
-            //         |record: &DataTypeDefinitionRecord| -> Rc<MatrixDataTypeDefinition> {
-            //             // 当Data Category列为Struct时，该列可选项为：boolean,uint8,uint16,uint32,uint64,sint8,sint16,sint32,sint64,float,double,String,Struct,Array,Union。
-            //             // 当Datatype列选择Struct,Array,Union时，且Member Name列有定义时，该处无需填写。
-            //             let record_member_name = match &record.member_description {
-            //                 Some(s) => s,
-            //                 None => {
-            //                     error!(
-            //                         "parse record member name error. {:?}",
-            //                         record.parameter_data_type_name
-            //                     );
-            //                     panic!()
-            //                 }
-            //             };
+                // let parse_struct_category_member =
+                //     |record: &DataTypeDefinitionRecord| -> MatrixDataTypeDefinitionTreeNodeRef {
+                //         // 当Data Category列为Struct时，该列可选项为：boolean,uint8,uint16,uint32,uint64,sint8,sint16,sint32,sint64,float,double,String,Struct,Array,Union。
+                //         // 当Datatype列选择Struct,Array,Union时，且Member Name列有定义时，该处无需填写。
+                //         let record_member_name = match &record.member_description {
+                //             Some(s) => s,
+                //             None => {
+                //                 error!(
+                //                     "parse record member name error. {:?}",
+                //                     record.parameter_data_type_name
+                //                 );
+                //                 panic!()
+                //             }
+                //         };
 
-            //             let record_member_description = record
-            //                 .member_description
-            //                 .clone()
-            //                 .unwrap_or_else(|| "".to_string());
+                //         let record_member_description = record
+                //             .member_description
+                //             .clone()
+                //             .unwrap_or_else(|| "".to_string());
 
-            //             if record_data_type == "struct"
-            //                 || record_data_type == "array"
-            //                 // || record_data_type == "union"
-            //                 || record_data_type == ""
-            //                 || record_data_type == "/"
-            //             {
-            //                 let record_member_data_type_reference = &record
-            //                     .member_data_type_reference
-            //                     .clone()
-            //                     .unwrap_or_default();
+                //         if record_data_type == "struct"
+                //             || record_data_type == "array"
+                //             // || record_data_type == "union"
+                //             || record_data_type == ""
+                //             || record_data_type == "/"
+                //         {
+                //             let record_member_data_type_reference = &record
+                //                 .member_data_type_reference
+                //                 .clone()
+                //                 .unwrap_or_default();
 
-            //                 let struct_array_union_in_struct_key_name =
-            //                     // Member Datatype Reference 优先级高于 Member Name
-            //                     if record_member_data_type_reference.is_empty()
-            //                         || record_member_data_type_reference.starts_with("/")
-            //                     {
-            //                         record_member_name
-            //                     } else {
-            //                         record_member_data_type_reference
-            //                     };
+                //             let struct_array_union_in_struct_key_name =
+                //                 // Member Datatype Reference 优先级高于 Member Name
+                //                 if record_member_data_type_reference.is_empty()
+                //                     || record_member_data_type_reference.starts_with("/")
+                //                 {
+                //                     record_member_name
+                //                 } else {
+                //                     record_member_data_type_reference
+                //                 };
 
-            //                 let ret: &mut MatrixDataTypeDefinition = data_type_definitions
-            //                     .entry(*struct_array_union_in_struct_key_name)
-            //                     .or_insert_with(|| {
-            //                         Rc::new(MatrixDataTypeDefinition {
-            //                             name: record_parameter_data_type_name,
-            //                             description: record_data_type_description,
-            //                             payload: MatrixDataType::Custom("".to_string()),
-            //                         })
-            //                     });
+                //             // let ret: &mut MatrixDataTypeDefinitionTreeNodeRef = data_type_definitions
+                //             //     .push(|| {
+                //             //         Rc::new(MatrixDataTypeDefinitionTreeNode {
+                //             //             name: record_parameter_data_type_name,
+                //             //             description: record_data_type_description,
+                //             //             data_type: MatrixDataType::Struct,
+                //             //             children: Vec::new(),
+                //             //         })
+                //             //     });
 
-            //                 unsafe { Rc::from_raw(ret) }
-            //             } else {
-            //                 // 对于非结构体类型，不存在多次引用关系，不需要在
-            //                 Rc::new(MatrixDataTypeDefinition {
-            //                     name: *record_member_name,
-            //                     description: record_member_description,
-            //                     payload: match parse_number_data_type(&record_data_type) {
-            //                         Some(s) => s,
-            //                         _ => {
-            //                             error!("parse data type error: {}", record_data_type);
-            //                             panic!();
-            //                         }
-            //                     },
-            //                 })
-            //             }
-            //         };
+                //             // unsafe { Rc::from_raw(ret) }
+                //         } else {
+                //             // 对于非结构体类型，不存在多次引用关系，不需要在
+                //             Rc::new(MatrixDataTypeDefinition {
+                //                 name: *record_member_name,
+                //                 description: record_member_description,
+                //                 payload: match parse_number_data_type(&record_data_type) {
+                //                     Some(s) => s,
+                //                     _ => {
+                //                         error!("parse data type error: {}", record_data_type);
+                //                         panic!();
+                //                     }
+                //                 },
+                //             })
+                //         }
+                //     };
 
-            //     let parse_array_category_member =
-            //         |record: &DataTypeDefinitionRecord| -> MatrixDataType {
-            //             // 当Data Category列为Struct时，该列可选项为：boolean,uint8,uint16,uint32,uint64,sint8,sint16,sint32,sint64,float,double,String,Struct,Array,Union。
-            //             // 当Datatype列选择Struct,Array,Union时，且Member Name列有定义时，该处无需填写。
-            //             let record_member_name = match record.member_description {
-            //                 Some(s) => s,
-            //                 None => {
-            //                     error!(
-            //                         "parse record member name error. {:?}",
-            //                         record.parameter_data_type_name
-            //                     );
-            //                     panic!()
-            //                 }
-            //             };
+                // let parse_array_category_member =
+                //     |record: &DataTypeDefinitionRecord| -> MatrixDataType {
+                //         // 当Data Category列为Struct时，该列可选项为：boolean,uint8,uint16,uint32,uint64,sint8,sint16,sint32,sint64,float,double,String,Struct,Array,Union。
+                //         // 当Datatype列选择Struct,Array,Union时，且Member Name列有定义时，该处无需填写。
+                //         let record_member_name = match record.member_description {
+                //             Some(s) => s,
+                //             None => {
+                //                 error!(
+                //                     "parse record member name error. {:?}",
+                //                     record.parameter_data_type_name
+                //                 );
+                //                 panic!()
+                //             }
+                //         };
 
-            //             let record_member_description = record
-            //                 .member_description
-            //                 .clone()
-            //                 .unwrap_or_else(|| "".to_string());
+                //         let record_member_description = record
+                //             .member_description
+                //             .clone()
+                //             .unwrap_or_else(|| "".to_string());
 
-            //             if record_data_type == "struct"
-            //             // || record_data_type == "array"
-            //             // || record_data_type == "union"
-            //             || record_data_type == ""
-            //             || record_data_type == "/"
-            //             {
-            //                 let record_member_data_type_reference = record
-            //                     .member_data_type_reference
-            //                     .clone()
-            //                     .unwrap_or_default();
+                //         if record_data_type == "struct"
+                //         // || record_data_type == "array"
+                //         // || record_data_type == "union"
+                //         || record_data_type == ""
+                //         || record_data_type == "/"
+                //         {
+                //             let record_member_data_type_reference = record
+                //                 .member_data_type_reference
+                //                 .clone()
+                //                 .unwrap_or_default();
 
-            //                 let struct_array_union_in_struct_key_name =
-            //                 // Member Datatype Reference 优先级高于 Member Name
-            //                 if record_member_data_type_reference.is_empty()
-            //                     || record_member_data_type_reference.starts_with("/")
-            //                 {
-            //                     record_member_name
-            //                 } else {
-            //                     record_member_data_type_reference
-            //                 };
+                //             let struct_array_union_in_struct_key_name =
+                //             // Member Datatype Reference 优先级高于 Member Name
+                //             if record_member_data_type_reference.is_empty()
+                //                 || record_member_data_type_reference.starts_with("/")
+                //             {
+                //                 record_member_name
+                //             } else {
+                //                 record_member_data_type_reference
+                //             };
 
-            //                 let ret = MatrixDataType::Struct {
-            //                     vec: RefCell::new(Vec::new()),
-            //                 };
+                //             let ret = MatrixDataType::Struct {
+                //                 vec: RefCell::new(Vec::new()),
+                //             };
 
-            //                 let parent: &mut MatrixDataTypeDefinition = data_type_definitions
-            //                     .entry(struct_array_union_in_struct_key_name)
-            //                     .or_insert_with(|| {
-            //                         Rc::new(MatrixDataTypeDefinition {
-            //                             name: record_parameter_data_type_name,
-            //                             description: record_data_type_description,
-            //                             payload: ret,
-            //                         })
-            //                     });
+                //             let parent: &mut MatrixDataTypeDefinition = data_type_definitions
+                //                 .entry(struct_array_union_in_struct_key_name)
+                //                 .or_insert_with(|| {
+                //                     Rc::new(MatrixDataTypeDefinition {
+                //                         name: record_parameter_data_type_name,
+                //                         description: record_data_type_description,
+                //                         payload: ret,
+                //                     })
+                //                 });
 
-            //                 ret
-            //             } else {
-            //                 match parse_number_data_type(&record_data_type) {
-            //                     Some(s) => s,
-            //                     _ => {
-            //                         error!("parse data type error: {}", record_data_type);
-            //                         panic!();
-            //                     }
-            //                 }
-            //             }
-            //         };
+                //             ret
+                //         } else {
+                //             match parse_number_data_type(&record_data_type) {
+                //                 Some(s) => s,
+                //                 _ => {
+                //                     error!("parse data type error: {}", record_data_type);
+                //                     panic!();
+                //                 }
+                //             }
+                //         }
+                //     };
 
-            //     // 对于非Struct类型，可直接添加新的一个结构体，对于Struct类型，可能需要重复添加结构体
-            //     let data_type: &mut MatrixDataTypeDefinition = data_type_definitions
-            //         .entry(record_parameter_data_type_name)
-            //         .or_insert_with(|| {
-            //             Rc::new(MatrixDataTypeDefinition {
-            //                 name: record_parameter_data_type_name,
-            //                 description: record_data_type_description,
-            //                 payload: MatrixDataType::Custom("".to_string()),
-            //             })
-            //         });
+                // 对于非Struct类型，可直接添加新的一个结构体，对于Struct类型，可能需要重复添加结构体
+                let data_type: &mut MatrixDataTypeDefinition = data_type_definitions
+                    .entry(record_parameter_data_type_name)
+                    .or_insert_with(|| {
+                        Rc::new(MatrixDataTypeDefinition {
+                            name: record_parameter_data_type_name,
+                            description: record_data_type_description,
+                            payload: MatrixDataType::Custom("".to_string()),
+                        })
+                    });
 
-            //     match record_data_category.as_str() {
-            //         // 优先处理struct类型
-            //         "struct" => {
-            //             data_type
-            //                 .payload
-            //                 .push_struct_datatype(parse_struct_category_member(&record));
-            //         }
-            //         "string" => {
-            //             data_type.payload = MatrixDataType::String(StringPayload {
-            //                 length: parse_string_array_length(&record),
-            //                 encoding: match record_data_type.as_str() {
-            //                     "utf-8" => StringEncoding::UTF8,
-            //                     "utf-16" => StringEncoding::UTF16LE,
-            //                     _ => {
-            //                         error!("parse encoding error:{}", record_data_type);
-            //                         panic!()
-            //                     }
-            //                 },
-            //             });
-            //         }
-            //         // TODO: enumeration? 是否考虑自动解析，或者不解析
-            //         "integer" | "enumeration" | "float" | "double" => {
-            //             // TODO: offset min max ...
-            //             data_type.payload = match parse_number_data_type(&record_data_type) {
-            //                 Some(s) => s,
-            //                 _ => {
-            //                     error!("parse data type error: {}", record_data_type);
-            //                     panic!();
-            //                 }
-            //             }
-            //         }
-            //         "array" => {
-            //             data_type.payload = parse_array_category_member(&record);
-            //         }
-            //         _ => {
-            //             error!("parse data category error:{}", record_data_category);
-            //             panic!();
-            //         }
-            //     };
-            // }
+                match record_data_category.as_str() {
+                    // 优先处理struct类型
+                    "struct" => {
+                        // data_type
+                        //     .payload
+                        //     .push_struct_datatype(parse_struct_category_member(&record));
+                    }
+                    "string" => {
+                        data_type.payload = MatrixDataType::String(StringPayload {
+                            length: parse_string_array_length(&record),
+                            encoding: match record_data_type.as_str() {
+                                "utf-8" => StringEncoding::UTF8,
+                                "utf-16" => StringEncoding::UTF16LE,
+                                _ => {
+                                    error!("parse encoding error:{}", record_data_type);
+                                    panic!()
+                                }
+                            },
+                        });
+                    }
+                    // TODO: enumeration? 是否考虑自动解析，或者不解析
+                    "integer" | "enumeration" | "float" | "double" => {
+                        // TODO: offset min max ...
+                        data_type.payload = match parse_number_data_type(&record_data_type) {
+                            Some(s) => s,
+                            _ => {
+                                error!("parse data type error: {}", record_data_type);
+                                panic!();
+                            }
+                        }
+                    }
+                    "array" => {
+                        data_type.payload = parse_array_category_member(&record);
+                    }
+                    _ => {
+                        error!("parse data category error:{}", record_data_category);
+                        panic!();
+                    }
+                };
+            }
 
             // Fill Methods
             let range = wb.worksheet_range("ServiceInterfaces").unwrap();
@@ -635,7 +629,7 @@ pub mod matrix_loader {
             let matrix = Matrix {
                 version,
                 service_interfaces: services,
-                data_type_definition: HashMap::new(),
+                data_type_definition: Vec::new(),
                 serialization_parameter: matrix_serialazion_parameter,
                 matrix_role: roles,
             };
