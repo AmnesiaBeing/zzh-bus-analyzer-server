@@ -2,6 +2,7 @@
 /// TODO: load/save json
 pub mod matrix_loader {
 
+    use std::borrow::BorrowMut;
     use std::cell::RefCell;
     use std::collections::{HashMap, HashSet};
     use std::net::{IpAddr, Ipv4Addr};
@@ -252,7 +253,7 @@ pub mod matrix_loader {
             let mut data_type_definitions: HashMap<String, MatrixDataNodeRef> = HashMap::new();
             let mut last_key: String = Default::default();
             let mut last_node: &mut MatrixDataNodeRef;
-            let mut last_record_data_category: String;
+            let mut last_record_data_category: String = Default::default();
 
             for result in iter_records {
                 let record: DataTypeDefinitionRecord = match result {
@@ -278,33 +279,32 @@ pub mod matrix_loader {
                 );
 
                 // 当前行与之前行内容不相等
-                if record_parameter_data_type_name != last_key {
-                    let record_data_type_description = record
-                        .data_type_description
-                        .clone()
-                        .unwrap_or_else(|| "".to_string())
-                        .to_lowercase();
+                // if record_parameter_data_type_name != last_key {
+                let record_data_type_description = record
+                    .data_type_description
+                    .clone()
+                    .unwrap_or_else(|| "".to_string())
+                    .to_lowercase();
 
-                    if record.data_category.is_none() {
-                        debug!(
-                            "data_category is empty, sth error. parameter_data_type_name:{:?}",
-                            record_parameter_data_type_name
-                        );
-                        panic!()
-                    }
-                    last_record_data_category =
-                        record.data_category.clone().unwrap().to_lowercase();
-
-                    last_node = data_type_definitions
-                        .entry(record_parameter_data_type_name.clone())
-                        .or_insert(Rc::new(RefCell::new(MatrixDataNode {
-                            name: record_parameter_data_type_name.clone(),
-                            description: record_data_type_description.clone(),
-                            data_type: Default::default(),
-                        })));
+                if record.data_category.is_none() {
+                    debug!(
+                        "data_category is empty, sth error. parameter_data_type_name:{:?}",
+                        record_parameter_data_type_name
+                    );
+                    panic!()
                 }
+                last_record_data_category = record.data_category.clone().unwrap().to_lowercase();
 
-                let mut last_node = last_node.borrow_mut();
+                last_node = data_type_definitions
+                    .entry(record_parameter_data_type_name.clone())
+                    .or_insert(Rc::new(RefCell::new(MatrixDataNode {
+                        name: record_parameter_data_type_name.clone(),
+                        description: record_data_type_description.clone(),
+                        data_type: Default::default(),
+                    })));
+                // }
+
+                let mut last_node_mut = last_node.borrow_mut().get_mut();
 
                 let record_data_type = record
                     .data_type
@@ -365,16 +365,16 @@ pub mod matrix_loader {
                 match last_record_data_category.as_str() {
                     "struct" => {
                         // 首次确定类型需初始化
-                        if let MatrixType::Unimplemented {} = &last_node.data_type {
-                            last_node.data_type = MatrixType::Struct {
-                                children: Default::default(),
-                                children_refs: Default::default(),
-                            };
-                        }
+                        // if let MatrixType::Unimplemented {} = last_node_mut.data_type {
+                        //     last_node_mut.data_type = MatrixType::Struct {
+                        //         children: Default::default(),
+                        //         children_refs: Default::default(),
+                        //     };
+                        // }
                         if let MatrixType::Struct {
-                            children,
-                            children_refs,
-                        } = &last_node.data_type
+                            ref mut children,
+                            ref mut children_refs,
+                        } = last_node_mut.data_type
                         {
                             let record_member_name = match &record.member_description {
                                 Some(s) => s,
@@ -445,20 +445,20 @@ pub mod matrix_loader {
                     }
                     "array" => {
                         // 首次确定类型需初始化
-                        if let MatrixType::Unimplemented {} = &last_node.data_type {
-                            last_node.data_type = MatrixType::Array {
-                                length: Default::default(),
-                                children: Default::default(),
-                                children_ref: Default::default(),
-                            };
-                        }
+                        // if let MatrixType::Unimplemented {} = &last_node_mut.get_mut().data_type {
+                        //     last_node_mut.get_mut().data_type = MatrixType::Array {
+                        //         length: Default::default(),
+                        //         children: Default::default(),
+                        //         children_ref: Default::default(),
+                        //     };
+                        // }
                         if let MatrixType::Array {
-                            mut length,
-                            ref children,
-                            ref children_ref,
-                        } = &last_node.data_type
+                            ref mut length,
+                            ref mut children,
+                            ref mut children_ref,
+                        } = last_node_mut.data_type
                         {
-                            length = parse_string_array_length(&record);
+                            *length = parse_string_array_length(&record);
 
                             let record_member_name = match &record.member_description {
                                 Some(s) => s,
@@ -476,7 +476,7 @@ pub mod matrix_loader {
                                 .clone()
                                 .unwrap_or_else(|| "".to_string());
 
-                            children = &record_member_name.clone();
+                            *children = record_member_name.clone();
 
                             match record_data_type.as_str() {
                                 "struct" | "array" | "/" | "" | "union" | "string" => {
@@ -496,20 +496,20 @@ pub mod matrix_loader {
                                             record_member_data_type_reference
                                         };
                                     let new_node = Rc::new(RefCell::new(MatrixDataNode {
-                                        name: record_parameter_data_type_name,
-                                        description: record_member_description,
+                                        name: record_parameter_data_type_name.clone(),
+                                        description: record_member_description.clone(),
                                         data_type: Default::default(),
                                     }));
                                     // 遇到不认识的节点，先在主树中创建，占位置，类型暂时不处理，后续读取到的时候会修改其类型的
                                     data_type_definitions.insert(
                                         struct_array_union_in_struct_key_name.clone(),
-                                        new_node,
+                                        new_node.clone(),
                                     );
-                                    children_ref = &Rc::downgrade(&new_node);
+                                    *children_ref = Rc::downgrade(&new_node.clone());
                                 }
                                 _ => {
-                                    children_ref =
-                                        &Rc::downgrade(&Rc::new(RefCell::new(MatrixDataNode {
+                                    *children_ref =
+                                        Rc::downgrade(&Rc::new(RefCell::new(MatrixDataNode {
                                             name: record_member_name.clone(),
                                             description: record_member_description,
                                             data_type: match parse_number_data_type(
@@ -528,7 +528,7 @@ pub mod matrix_loader {
                     }
                     "string" => {
                         // 首次确定类型需初始化
-                        last_node.data_type = MatrixType::String {
+                        last_node_mut.data_type = MatrixType::String {
                             length: parse_string_array_length(&record),
                             encoding: match record_data_type.as_str() {
                                 "utf-8" => StringEncoding::UTF8,
@@ -542,7 +542,7 @@ pub mod matrix_loader {
                     }
                     "integer" | "enumeration" | "float" | "double" => {
                         // TODO: enumeration offset min max ...
-                        last_node.data_type = match parse_number_data_type(&record_data_type) {
+                        last_node_mut.data_type = match parse_number_data_type(&record_data_type) {
                             Some(s) => s,
                             _ => {
                                 error!("parse data type error: {}", record_data_type);
