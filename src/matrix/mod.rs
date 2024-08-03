@@ -173,21 +173,9 @@ pub mod matrix_loader {
 
             // Fill Services
             let range = wb.worksheet_range("Deployment").unwrap();
-            let iter_records = RangeDeserializerBuilder::with_headers(&[
-                "Service InterFace Name",
-                "Service ID",
-                "Instance ID",
-                "Major Version",
-                "Minor Version",
-                "Server",
-                "Server IP",
-                "Server MAC",
-                "Server Port",
-                "Client",
-                "Client IP",
-                "Client MAC",
-            ])
-            .from_range(&range)?;
+            let iter_records =
+                RangeDeserializerBuilder::with_deserialize_headers::<DeploymentRecord>()
+                    .from_range(&range)?;
 
             let mut services: HashMap<SomeipServiceId, MatrixService> = HashMap::new();
             let mut roles: HashMap<String, Rc<MatrixRole>> = HashMap::new();
@@ -257,27 +245,9 @@ pub mod matrix_loader {
 
             // Fill Data Type
             let range = wb.worksheet_range("DataTypeDefinition").unwrap();
-            let iter_records = RangeDeserializerBuilder::with_headers(&[
-                "Parameter Data Type Name",
-                "DataType Description",
-                "Data Category",
-                "String/Array Length Type",
-                "String/Array Length Min",
-                "String/Array Length Max",
-                "Member Name",
-                "Member Description",
-                "Member Datatype Reference",
-                "Datatype",
-                // "Resolution",
-                // "Offset",
-                // "Physical Min",
-                // "Physical Max",
-                // "Initial Value",
-                // "Invalid Value",
-                // "Unit",
-                // "Discrete Value Defination",
-            ])
-            .from_range(&range)?;
+            let iter_records =
+                RangeDeserializerBuilder::with_deserialize_headers::<DataTypeDefinitionRecord>()
+                    .from_range(&range)?;
 
             let mut data_type_definitions: HashMap<String, MatrixDataNodeRef> = HashMap::new();
             let mut last_key: String = Default::default();
@@ -589,29 +559,11 @@ pub mod matrix_loader {
 
             // Fill Methods
             let range = wb.worksheet_range("ServiceInterfaces").unwrap();
-            let iter_records = RangeDeserializerBuilder::with_headers(&[
-                "Service InterFace Name",
-                "Service ID",
-                "Service Description",
-                // "Method/Event/Field",
-                // "Setter/Getter/Notifier",
-                // "Element Name",
-                // "Element Description",
-                // "Method ID/Event ID",
-                // "Eventgroup Name",
-                // "Eventgroup ID",
-                // "Send Strategy",
-                // "Cyclic Time (ms)",
-                // "Parameter Name",
-                // "IN/OUT",
-                // "Parameter Description",
-                // "Parameter Data Type",
-                // "UDP/TCP",
-                // "AutoSAR E2E Protection (Profile 6)",
-            ])
-            .has_headers(false)
-            .from_range(&range)?
-            .skip(2);
+            let iter_records =
+                RangeDeserializerBuilder::with_deserialize_headers::<ServiceInterfacesRecord>()
+                    .has_headers(false)
+                    .from_range(&range)?
+                    .skip(2);
 
             // 同一个服务的方法必然连续
             let mut last_service: &mut MatrixService;
