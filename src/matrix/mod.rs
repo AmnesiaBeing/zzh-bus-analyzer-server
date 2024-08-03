@@ -13,7 +13,8 @@ pub mod matrix_loader {
     use serde::{de, Deserialize, Deserializer};
 
     use crate::types::{
-        ClientMatrixRole, Matrix, MatrixDataType, MatrixDataTypeDefinitionTreeNode, MatrixDataTypeDefinitionTreeNodeRef, MatrixRole, MatrixService, NumberType, ServerMatrixRole, SomeipServiceId, StringArrayLength
+        ClientMatrixRole, Matrix, MatrixDataNode, MatrixDataNodeRef, MatrixRole, MatrixService,
+        MatrixType, NumberType, ServerMatrixRole, SomeipServiceId, StringArrayLength,
     };
     use crate::types::{
         MatrixSerializationParameter, MatrixSerializationParameterSize, StringEncoding,
@@ -278,7 +279,10 @@ pub mod matrix_loader {
             ])
             .from_range(&range)?;
 
-            let mut data_type_definitions: HashSet<MatrixDataTypeDefinitionTreeNodeRef> = HashSet::new();
+            let mut data_type_definitions: HashMap<String, MatrixDataNodeRef> = HashMap::new();
+            let mut last_key: String = Default::default();
+            let mut last_node: &mut MatrixDataNodeRef;
+            let mut last_record_data_category: String;
 
             for result in iter_records {
                 let record: DataTypeDefinitionRecord = match result {
@@ -294,6 +298,7 @@ pub mod matrix_loader {
                     debug!("parameter_data_type_name is empty, perhaps empty row, skip.");
                     continue;
                 }
+
                 let record_parameter_data_type_name =
                     record.parameter_data_type_name.clone().unwrap();
 
@@ -302,20 +307,34 @@ pub mod matrix_loader {
                     record.parameter_data_type_name, record.data_category
                 );
 
-                let record_data_type_description = record
-                    .data_type_description
-                    .clone()
-                    .unwrap_or_else(|| "".to_string())
-                    .to_lowercase();
+                // 当前行与之前行内容不相等
+                if record_parameter_data_type_name != last_key {
+                    let record_data_type_description = record
+                        .data_type_description
+                        .clone()
+                        .unwrap_or_else(|| "".to_string())
+                        .to_lowercase();
 
-                if record.data_category.is_none() {
-                    debug!(
-                        "data_category is empty, sth error. parameter_data_type_name:{:?}",
-                        record_parameter_data_type_name
-                    );
-                    panic!()
+                    if record.data_category.is_none() {
+                        debug!(
+                            "data_category is empty, sth error. parameter_data_type_name:{:?}",
+                            record_parameter_data_type_name
+                        );
+                        panic!()
+                    }
+                    last_record_data_category =
+                        record.data_category.clone().unwrap().to_lowercase();
+
+                    last_node = data_type_definitions
+                        .entry(record_parameter_data_type_name.clone())
+                        .or_insert(Rc::new(RefCell::new(MatrixDataNode {
+                            name: record_parameter_data_type_name.clone(),
+                            description: record_data_type_description.clone(),
+                            data_type: Default::default(),
+                        })));
                 }
-                let record_data_category = record.data_category.clone().unwrap().to_lowercase();
+
+                let mut last_node = last_node.borrow_mut();
 
                 let record_data_type = record
                     .data_type
@@ -354,8 +373,8 @@ pub mod matrix_loader {
                         }
                     };
 
-                let parse_number_data_type = |record_data_type: &String| -> Option<MatrixDataType> {
-                    Some(MatrixDataType::Number {
+                let parse_number_data_type = |record_data_type: &String| -> Option<MatrixType> {
+                    Some(MatrixType::Number {
                         size: match record_data_type.as_str() {
                             "boolean" => NumberType::Boolean,
                             "uint8" => NumberType::Uint8,
@@ -373,161 +392,173 @@ pub mod matrix_loader {
                     })
                 };
 
-                // let parse_struct_category_member =
-                //     |record: &DataTypeDefinitionRecord| -> MatrixDataTypeDefinitionTreeNodeRef {
-                //         // 当Data Category列为Struct时，该列可选项为：boolean,uint8,uint16,uint32,uint64,sint8,sint16,sint32,sint64,float,double,String,Struct,Array,Union。
-                //         // 当Datatype列选择Struct,Array,Union时，且Member Name列有定义时，该处无需填写。
-                //         let record_member_name = match &record.member_description {
-                //             Some(s) => s,
-                //             None => {
-                //                 error!(
-                //                     "parse record member name error. {:?}",
-                //                     record.parameter_data_type_name
-                //                 );
-                //                 panic!()
-                //             }
-                //         };
-
-                //         let record_member_description = record
-                //             .member_description
-                //             .clone()
-                //             .unwrap_or_else(|| "".to_string());
-
-                //         if record_data_type == "struct"
-                //             || record_data_type == "array"
-                //             // || record_data_type == "union"
-                //             || record_data_type == ""
-                //             || record_data_type == "/"
-                //         {
-                //             let record_member_data_type_reference = &record
-                //                 .member_data_type_reference
-                //                 .clone()
-                //                 .unwrap_or_default();
-
-                //             let struct_array_union_in_struct_key_name =
-                //                 // Member Datatype Reference 优先级高于 Member Name
-                //                 if record_member_data_type_reference.is_empty()
-                //                     || record_member_data_type_reference.starts_with("/")
-                //                 {
-                //                     record_member_name
-                //                 } else {
-                //                     record_member_data_type_reference
-                //                 };
-
-                //             // let ret: &mut MatrixDataTypeDefinitionTreeNodeRef = data_type_definitions
-                //             //     .push(|| {
-                //             //         Rc::new(MatrixDataTypeDefinitionTreeNode {
-                //             //             name: record_parameter_data_type_name,
-                //             //             description: record_data_type_description,
-                //             //             data_type: MatrixDataType::Struct,
-                //             //             children: Vec::new(),
-                //             //         })
-                //             //     });
-
-                //             // unsafe { Rc::from_raw(ret) }
-                //         } else {
-                //             // 对于非结构体类型，不存在多次引用关系，不需要在
-                //             Rc::new(MatrixDataTypeDefinition {
-                //                 name: *record_member_name,
-                //                 description: record_member_description,
-                //                 payload: match parse_number_data_type(&record_data_type) {
-                //                     Some(s) => s,
-                //                     _ => {
-                //                         error!("parse data type error: {}", record_data_type);
-                //                         panic!();
-                //                     }
-                //                 },
-                //             })
-                //         }
-                //     };
-
-                // let parse_array_category_member =
-                //     |record: &DataTypeDefinitionRecord| -> MatrixDataType {
-                //         // 当Data Category列为Struct时，该列可选项为：boolean,uint8,uint16,uint32,uint64,sint8,sint16,sint32,sint64,float,double,String,Struct,Array,Union。
-                //         // 当Datatype列选择Struct,Array,Union时，且Member Name列有定义时，该处无需填写。
-                //         let record_member_name = match record.member_description {
-                //             Some(s) => s,
-                //             None => {
-                //                 error!(
-                //                     "parse record member name error. {:?}",
-                //                     record.parameter_data_type_name
-                //                 );
-                //                 panic!()
-                //             }
-                //         };
-
-                //         let record_member_description = record
-                //             .member_description
-                //             .clone()
-                //             .unwrap_or_else(|| "".to_string());
-
-                //         if record_data_type == "struct"
-                //         // || record_data_type == "array"
-                //         // || record_data_type == "union"
-                //         || record_data_type == ""
-                //         || record_data_type == "/"
-                //         {
-                //             let record_member_data_type_reference = record
-                //                 .member_data_type_reference
-                //                 .clone()
-                //                 .unwrap_or_default();
-
-                //             let struct_array_union_in_struct_key_name =
-                //             // Member Datatype Reference 优先级高于 Member Name
-                //             if record_member_data_type_reference.is_empty()
-                //                 || record_member_data_type_reference.starts_with("/")
-                //             {
-                //                 record_member_name
-                //             } else {
-                //                 record_member_data_type_reference
-                //             };
-
-                //             let ret = MatrixDataType::Struct {
-                //                 vec: RefCell::new(Vec::new()),
-                //             };
-
-                //             let parent: &mut MatrixDataTypeDefinition = data_type_definitions
-                //                 .entry(struct_array_union_in_struct_key_name)
-                //                 .or_insert_with(|| {
-                //                     Rc::new(MatrixDataTypeDefinition {
-                //                         name: record_parameter_data_type_name,
-                //                         description: record_data_type_description,
-                //                         payload: ret,
-                //                     })
-                //                 });
-
-                //             ret
-                //         } else {
-                //             match parse_number_data_type(&record_data_type) {
-                //                 Some(s) => s,
-                //                 _ => {
-                //                     error!("parse data type error: {}", record_data_type);
-                //                     panic!();
-                //                 }
-                //             }
-                //         }
-                //     };
-
-                // 对于非Struct类型，可直接添加新的一个结构体，对于Struct类型，可能需要重复添加结构体
-                let data_type: &mut MatrixDataTypeDefinition = data_type_definitions
-                    .entry(record_parameter_data_type_name)
-                    .or_insert_with(|| {
-                        Rc::new(MatrixDataTypeDefinition {
-                            name: record_parameter_data_type_name,
-                            description: record_data_type_description,
-                            payload: MatrixDataType::Custom("".to_string()),
-                        })
-                    });
-
-                match record_data_category.as_str() {
-                    // 优先处理struct类型
+                match last_record_data_category.as_str() {
                     "struct" => {
-                        // data_type
-                        //     .payload
-                        //     .push_struct_datatype(parse_struct_category_member(&record));
+                        // 首次确定类型需初始化
+                        if let MatrixType::Unimplemented {} = &last_node.data_type {
+                            last_node.data_type = MatrixType::Struct {
+                                children: Default::default(),
+                                children_refs: Default::default(),
+                            };
+                        }
+                        if let MatrixType::Struct {
+                            children,
+                            children_refs,
+                        } = &last_node.data_type
+                        {
+                            let record_member_name = match &record.member_description {
+                                Some(s) => s,
+                                None => {
+                                    error!(
+                                        "parse record member name error. {:?}",
+                                        record.parameter_data_type_name
+                                    );
+                                    panic!()
+                                }
+                            };
+
+                            let record_member_description = record
+                                .member_description
+                                .clone()
+                                .unwrap_or_else(|| "".to_string());
+
+                            children.push(record_member_name.clone());
+
+                            match record_data_type.as_str() {
+                                "struct" | "array" | "/" | "" | "union" | "string" => {
+                                    // 先按顺序猜测信息
+                                    let record_member_data_type_reference = &record
+                                        .member_data_type_reference
+                                        .clone()
+                                        .unwrap_or_default();
+
+                                    // Member Datatype Reference 优先级高于 Member Name
+                                    let struct_array_union_in_struct_key_name =
+                                        if record_member_data_type_reference.is_empty()
+                                            || record_member_data_type_reference.starts_with("/")
+                                        {
+                                            record_member_name
+                                        } else {
+                                            record_member_data_type_reference
+                                        };
+                                    let new_node = Rc::new(RefCell::new(MatrixDataNode {
+                                        name: record_parameter_data_type_name,
+                                        description: record_member_description,
+                                        data_type: Default::default(),
+                                    }));
+                                    // 遇到不认识的节点，先在主树中创建，占位置，类型暂时不处理，后续读取到的时候会修改其类型的
+                                    data_type_definitions.insert(
+                                        struct_array_union_in_struct_key_name.clone(),
+                                        new_node,
+                                    );
+                                    children_refs.push(Rc::downgrade(&new_node));
+                                }
+                                _ => {
+                                    children_refs.push(Rc::downgrade(&Rc::new(RefCell::new(
+                                        MatrixDataNode {
+                                            name: record_member_name.clone(),
+                                            description: record_member_description,
+                                            data_type: match parse_number_data_type(
+                                                &record_data_type,
+                                            ) {
+                                                Some(s) => s,
+                                                None => {
+                                                    error!("parse record_data_type error.");
+                                                    panic!();
+                                                }
+                                            },
+                                        },
+                                    ))));
+                                }
+                            }
+                        }
+                    }
+                    "array" => {
+                        // 首次确定类型需初始化
+                        if let MatrixType::Unimplemented {} = &last_node.data_type {
+                            last_node.data_type = MatrixType::Array {
+                                length: Default::default(),
+                                children: Default::default(),
+                                children_ref: Default::default(),
+                            };
+                        }
+                        if let MatrixType::Array {
+                            mut length,
+                            ref children,
+                            ref children_ref,
+                        } = &last_node.data_type
+                        {
+                            length = parse_string_array_length(&record);
+
+                            let record_member_name = match &record.member_description {
+                                Some(s) => s,
+                                None => {
+                                    error!(
+                                        "parse record member name error. {:?}",
+                                        record.parameter_data_type_name
+                                    );
+                                    panic!()
+                                }
+                            };
+
+                            let record_member_description = record
+                                .member_description
+                                .clone()
+                                .unwrap_or_else(|| "".to_string());
+
+                            children = &record_member_name.clone();
+
+                            match record_data_type.as_str() {
+                                "struct" | "array" | "/" | "" | "union" | "string" => {
+                                    // 先按顺序猜测信息
+                                    let record_member_data_type_reference = &record
+                                        .member_data_type_reference
+                                        .clone()
+                                        .unwrap_or_default();
+
+                                    // Member Datatype Reference 优先级高于 Member Name
+                                    let struct_array_union_in_struct_key_name =
+                                        if record_member_data_type_reference.is_empty()
+                                            || record_member_data_type_reference.starts_with("/")
+                                        {
+                                            record_member_name
+                                        } else {
+                                            record_member_data_type_reference
+                                        };
+                                    let new_node = Rc::new(RefCell::new(MatrixDataNode {
+                                        name: record_parameter_data_type_name,
+                                        description: record_member_description,
+                                        data_type: Default::default(),
+                                    }));
+                                    // 遇到不认识的节点，先在主树中创建，占位置，类型暂时不处理，后续读取到的时候会修改其类型的
+                                    data_type_definitions.insert(
+                                        struct_array_union_in_struct_key_name.clone(),
+                                        new_node,
+                                    );
+                                    children_ref = &Rc::downgrade(&new_node);
+                                }
+                                _ => {
+                                    children_ref =
+                                        &Rc::downgrade(&Rc::new(RefCell::new(MatrixDataNode {
+                                            name: record_member_name.clone(),
+                                            description: record_member_description,
+                                            data_type: match parse_number_data_type(
+                                                &record_data_type,
+                                            ) {
+                                                Some(s) => s,
+                                                None => {
+                                                    error!("parse record_data_type error.");
+                                                    panic!();
+                                                }
+                                            },
+                                        })));
+                                }
+                            }
+                        }
                     }
                     "string" => {
-                        data_type.payload = MatrixDataType::String(StringPayload {
+                        // 首次确定类型需初始化
+                        last_node.data_type = MatrixType::String {
                             length: parse_string_array_length(&record),
                             encoding: match record_data_type.as_str() {
                                 "utf-8" => StringEncoding::UTF8,
@@ -537,12 +568,11 @@ pub mod matrix_loader {
                                     panic!()
                                 }
                             },
-                        });
+                        };
                     }
-                    // TODO: enumeration? 是否考虑自动解析，或者不解析
                     "integer" | "enumeration" | "float" | "double" => {
-                        // TODO: offset min max ...
-                        data_type.payload = match parse_number_data_type(&record_data_type) {
+                        // TODO: enumeration offset min max ...
+                        last_node.data_type = match parse_number_data_type(&record_data_type) {
                             Some(s) => s,
                             _ => {
                                 error!("parse data type error: {}", record_data_type);
@@ -550,11 +580,8 @@ pub mod matrix_loader {
                             }
                         }
                     }
-                    "array" => {
-                        data_type.payload = parse_array_category_member(&record);
-                    }
                     _ => {
-                        error!("parse data category error:{}", record_data_category);
+                        error!("parse data category error:{}", last_record_data_category);
                         panic!();
                     }
                 };
@@ -629,7 +656,7 @@ pub mod matrix_loader {
             let matrix = Matrix {
                 version,
                 service_interfaces: services,
-                data_type_definition: Vec::new(),
+                data_type_definition: Default::default(),
                 serialization_parameter: matrix_serialazion_parameter,
                 matrix_role: roles,
             };
