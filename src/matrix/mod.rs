@@ -252,7 +252,7 @@ pub mod matrix_loader {
 
             let mut data_type_definitions: HashMap<String, MatrixDataNodeRef> = HashMap::new();
             let mut last_key: String = Default::default();
-            let mut last_node: &mut MatrixDataNodeRef;
+            let mut last_node: MatrixDataNodeRef;
             let mut last_record_data_category: String = Default::default();
 
             for result in iter_records {
@@ -301,10 +301,9 @@ pub mod matrix_loader {
                         name: record_parameter_data_type_name.clone(),
                         description: record_data_type_description.clone(),
                         data_type: Default::default(),
-                    })));
+                    })))
+                    .clone();
                 // }
-
-                let mut last_node_mut = last_node.borrow_mut().get_mut();
 
                 let record_data_type = record
                     .data_type
@@ -315,10 +314,8 @@ pub mod matrix_loader {
                 // 一些便于解析的小函数
                 let parse_string_array_length =
                     |record: &DataTypeDefinitionRecord| -> StringArrayLength {
-                        // TODO: handle panic
                         match record.string_array_length_type.clone().unwrap().as_str() {
                             "Fixed" => StringArrayLength::FIXED(0),
-                            // TODO: unwrap failed?
                             "Dynamic" => StringArrayLength::DYNAMIC(
                                 record
                                     .string_array_length_min
@@ -362,199 +359,211 @@ pub mod matrix_loader {
                     })
                 };
 
-                match last_record_data_category.as_str() {
-                    "struct" => {
-                        // 首次确定类型需初始化
-                        // if let MatrixType::Unimplemented {} = last_node_mut.data_type {
-                        //     last_node_mut.data_type = MatrixType::Struct {
-                        //         children: Default::default(),
-                        //         children_refs: Default::default(),
-                        //     };
-                        // }
-                        if let MatrixType::Struct {
-                            ref mut children,
-                            ref mut children_refs,
-                        } = last_node_mut.data_type
-                        {
-                            let record_member_name = match &record.member_description {
-                                Some(s) => s,
-                                None => {
-                                    error!(
-                                        "parse record member name error. {:?}",
-                                        record.parameter_data_type_name
-                                    );
-                                    panic!()
-                                }
-                            };
+                // let mut last_node_mut = last_node.borrow_mut();
+                if let Some(mut last_node_mut) = last_node.try_borrow_mut().ok() {
+                    match last_record_data_category.as_str() {
+                        "struct" => {
+                            // 首次确定类型需初始化
+                            if let MatrixType::Unimplemented {} = last_node_mut.data_type {
+                                last_node_mut.data_type = MatrixType::Struct {
+                                    children: Default::default(),
+                                    children_refs: Default::default(),
+                                };
+                            }
+                            if let MatrixType::Struct {
+                                ref mut children,
+                                ref mut children_refs,
+                            } = last_node_mut.data_type
+                            {
+                                let record_member_name = match &record.member_name {
+                                    Some(s) => s,
+                                    None => {
+                                        error!(
+                                            "parse record member name error. {:?}",
+                                            record.parameter_data_type_name
+                                        );
+                                        panic!()
+                                    }
+                                };
 
-                            let record_member_description = record
-                                .member_description
-                                .clone()
-                                .unwrap_or_else(|| "".to_string());
+                                let record_member_description = record
+                                    .member_description
+                                    .clone()
+                                    .unwrap_or_else(|| "".to_string());
 
-                            children.push(record_member_name.clone());
+                                children.push(record_member_name.clone());
 
-                            match record_data_type.as_str() {
-                                "struct" | "array" | "/" | "" | "union" | "string" => {
-                                    // 先按顺序猜测信息
-                                    let record_member_data_type_reference = &record
-                                        .member_data_type_reference
-                                        .clone()
-                                        .unwrap_or_default();
+                                match record_data_type.as_str() {
+                                    "struct" | "array" | "/" | "" | "union" | "string"
+                                    | "utf-8" => {
+                                        // 先按顺序猜测信息
+                                        let record_member_data_type_reference = &record
+                                            .member_data_type_reference
+                                            .clone()
+                                            .unwrap_or_default();
 
-                                    // Member Datatype Reference 优先级高于 Member Name
-                                    let struct_array_union_in_struct_key_name =
-                                        if record_member_data_type_reference.is_empty()
-                                            || record_member_data_type_reference.starts_with("/")
-                                        {
-                                            record_member_name
-                                        } else {
-                                            record_member_data_type_reference
-                                        };
-                                    let new_node = Rc::new(RefCell::new(MatrixDataNode {
-                                        name: record_parameter_data_type_name,
-                                        description: record_member_description,
-                                        data_type: Default::default(),
-                                    }));
-                                    // 遇到不认识的节点，先在主树中创建，占位置，类型暂时不处理，后续读取到的时候会修改其类型的
-                                    data_type_definitions.insert(
-                                        struct_array_union_in_struct_key_name.clone(),
-                                        new_node,
-                                    );
-                                    children_refs.push(Rc::downgrade(&new_node));
-                                }
-                                _ => {
-                                    children_refs.push(Rc::downgrade(&Rc::new(RefCell::new(
-                                        MatrixDataNode {
-                                            name: record_member_name.clone(),
+                                        // Member Datatype Reference 优先级高于 Member Name
+                                        let struct_array_union_in_struct_key_name =
+                                            if record_member_data_type_reference.is_empty()
+                                                || record_member_data_type_reference
+                                                    .starts_with("/")
+                                            {
+                                                record_member_name
+                                            } else {
+                                                record_member_data_type_reference
+                                            };
+                                        let new_node = Rc::new(RefCell::new(MatrixDataNode {
+                                            name: record_parameter_data_type_name,
                                             description: record_member_description,
-                                            data_type: match parse_number_data_type(
-                                                &record_data_type,
-                                            ) {
-                                                Some(s) => s,
-                                                None => {
-                                                    error!("parse record_data_type error.");
-                                                    panic!();
-                                                }
+                                            data_type: Default::default(),
+                                        }));
+                                        // 遇到不认识的节点，先在主树中创建，占位置，类型暂时不处理，后续读取到的时候会修改其类型的
+                                        data_type_definitions.insert(
+                                            struct_array_union_in_struct_key_name.clone(),
+                                            Rc::clone(&new_node),
+                                        );
+                                        children_refs.push(Rc::downgrade(&new_node));
+                                    }
+                                    _ => {
+                                        children_refs.push(Rc::downgrade(&Rc::new(RefCell::new(
+                                            MatrixDataNode {
+                                                name: record_member_name.clone(),
+                                                description: record_member_description,
+                                                data_type: match parse_number_data_type(
+                                                    &record_data_type,
+                                                ) {
+                                                    Some(s) => s,
+                                                    None => {
+                                                        error!(
+                                                            "parse record_data_type error.{}",
+                                                            record_data_type
+                                                        );
+                                                        panic!();
+                                                    }
+                                                },
                                             },
-                                        },
-                                    ))));
+                                        ))));
+                                    }
                                 }
                             }
                         }
-                    }
-                    "array" => {
-                        // 首次确定类型需初始化
-                        // if let MatrixType::Unimplemented {} = &last_node_mut.get_mut().data_type {
-                        //     last_node_mut.get_mut().data_type = MatrixType::Array {
-                        //         length: Default::default(),
-                        //         children: Default::default(),
-                        //         children_ref: Default::default(),
-                        //     };
-                        // }
-                        if let MatrixType::Array {
-                            ref mut length,
-                            ref mut children,
-                            ref mut children_ref,
-                        } = last_node_mut.data_type
-                        {
-                            *length = parse_string_array_length(&record);
+                        "array" => {
+                            // 首次确定类型需初始化
+                            if let MatrixType::Unimplemented {} = last_node_mut.data_type {
+                                last_node_mut.data_type = MatrixType::Array {
+                                    length: Default::default(),
+                                    children: Default::default(),
+                                    children_ref: Default::default(),
+                                };
+                            }
+                            if let MatrixType::Array {
+                                ref mut length,
+                                ref mut children,
+                                ref mut children_ref,
+                            } = last_node_mut.data_type
+                            {
+                                *length = parse_string_array_length(&record);
 
-                            let record_member_name = match &record.member_description {
-                                Some(s) => s,
-                                None => {
-                                    error!(
-                                        "parse record member name error. {:?}",
-                                        record.parameter_data_type_name
-                                    );
-                                    panic!()
-                                }
-                            };
-
-                            let record_member_description = record
-                                .member_description
-                                .clone()
-                                .unwrap_or_else(|| "".to_string());
-
-                            *children = record_member_name.clone();
-
-                            match record_data_type.as_str() {
-                                "struct" | "array" | "/" | "" | "union" | "string" => {
-                                    // 先按顺序猜测信息
-                                    let record_member_data_type_reference = &record
-                                        .member_data_type_reference
-                                        .clone()
-                                        .unwrap_or_default();
-
-                                    // Member Datatype Reference 优先级高于 Member Name
-                                    let struct_array_union_in_struct_key_name =
-                                        if record_member_data_type_reference.is_empty()
-                                            || record_member_data_type_reference.starts_with("/")
-                                        {
-                                            record_member_name
-                                        } else {
-                                            record_member_data_type_reference
+                                match record_data_type.as_str() {
+                                    "struct" | "array" | "/" | "" | "union" | "string"
+                                    | "utf-8" => {
+                                        // 先按顺序猜测信息
+                                        let record_member_name = match &record.member_name {
+                                            Some(s) => s,
+                                            None => {
+                                                error!(
+                                                    "parse record member name error. {:?}",
+                                                    record.parameter_data_type_name
+                                                );
+                                                panic!()
+                                            }
                                         };
-                                    let new_node = Rc::new(RefCell::new(MatrixDataNode {
-                                        name: record_parameter_data_type_name.clone(),
-                                        description: record_member_description.clone(),
-                                        data_type: Default::default(),
-                                    }));
-                                    // 遇到不认识的节点，先在主树中创建，占位置，类型暂时不处理，后续读取到的时候会修改其类型的
-                                    data_type_definitions.insert(
-                                        struct_array_union_in_struct_key_name.clone(),
-                                        new_node.clone(),
-                                    );
-                                    *children_ref = Rc::downgrade(&new_node.clone());
-                                }
-                                _ => {
-                                    *children_ref =
-                                        Rc::downgrade(&Rc::new(RefCell::new(MatrixDataNode {
-                                            name: record_member_name.clone(),
-                                            description: record_member_description,
-                                            data_type: match parse_number_data_type(
-                                                &record_data_type,
-                                            ) {
-                                                Some(s) => s,
-                                                None => {
-                                                    error!("parse record_data_type error.");
-                                                    panic!();
-                                                }
-                                            },
-                                        })));
+
+                                        let record_member_description = record
+                                            .member_description
+                                            .clone()
+                                            .unwrap_or_else(|| "".to_string());
+
+                                        let record_member_data_type_reference = &record
+                                            .member_data_type_reference
+                                            .clone()
+                                            .unwrap_or_default();
+
+                                        // Member Datatype Reference 优先级高于 Member Name
+                                        let struct_array_union_in_struct_key_name =
+                                            if record_member_data_type_reference.is_empty()
+                                                || record_member_data_type_reference
+                                                    .starts_with("/")
+                                            {
+                                                record_member_name
+                                            } else {
+                                                record_member_data_type_reference
+                                            };
+                                        let new_node = Rc::new(RefCell::new(MatrixDataNode {
+                                            name: record_parameter_data_type_name.clone(),
+                                            description: record_member_description.clone(),
+                                            data_type: Default::default(),
+                                        }));
+                                        // 遇到不认识的节点，先在主树中创建，占位置，类型暂时不处理，后续读取到的时候会修改其类型的
+                                        data_type_definitions.insert(
+                                            struct_array_union_in_struct_key_name.clone(),
+                                            new_node.clone(),
+                                        );
+                                        *children = record_member_name.clone();
+
+                                        *children_ref = Rc::downgrade(&new_node.clone());
+                                    }
+                                    _ => {
+                                        // 对于数组中的数值类型，无名、无描述、仅有数据类型
+                                        *children_ref =
+                                            Rc::downgrade(&Rc::new(RefCell::new(MatrixDataNode {
+                                                name: Default::default(),
+                                                description: Default::default(),
+                                                data_type: match parse_number_data_type(
+                                                    &record_data_type,
+                                                ) {
+                                                    Some(s) => s,
+                                                    None => {
+                                                        error!("parse record_data_type error.");
+                                                        panic!();
+                                                    }
+                                                },
+                                            })));
+                                    }
                                 }
                             }
                         }
-                    }
-                    "string" => {
-                        // 首次确定类型需初始化
-                        last_node_mut.data_type = MatrixType::String {
-                            length: parse_string_array_length(&record),
-                            encoding: match record_data_type.as_str() {
-                                "utf-8" => StringEncoding::UTF8,
-                                "utf-16" => StringEncoding::UTF16LE,
-                                _ => {
-                                    error!("parse encoding error:{}", record_data_type);
-                                    panic!()
-                                }
-                            },
-                        };
-                    }
-                    "integer" | "enumeration" | "float" | "double" => {
-                        // TODO: enumeration offset min max ...
-                        last_node_mut.data_type = match parse_number_data_type(&record_data_type) {
-                            Some(s) => s,
-                            _ => {
-                                error!("parse data type error: {}", record_data_type);
-                                panic!();
-                            }
+                        "string" => {
+                            // 首次确定类型需初始化
+                            last_node_mut.data_type = MatrixType::String {
+                                length: parse_string_array_length(&record),
+                                encoding: match record_data_type.as_str() {
+                                    "utf-8" => StringEncoding::UTF8,
+                                    "utf-16" => StringEncoding::UTF16LE,
+                                    _ => {
+                                        error!("parse encoding error:{}", record_data_type);
+                                        panic!()
+                                    }
+                                },
+                            };
                         }
-                    }
-                    _ => {
-                        error!("parse data category error:{}", last_record_data_category);
-                        panic!();
-                    }
-                };
+                        "integer" | "enumeration" | "float" | "double" => {
+                            // TODO: enumeration offset min max ...
+                            last_node_mut.data_type =
+                                match parse_number_data_type(&record_data_type) {
+                                    Some(s) => s,
+                                    _ => {
+                                        error!("parse data type error: {}", record_data_type);
+                                        panic!();
+                                    }
+                                }
+                        }
+                        _ => {
+                            error!("parse data category error:{}", last_record_data_category);
+                            panic!();
+                        }
+                    };
+                }
             }
 
             // Fill Methods
@@ -608,7 +617,7 @@ pub mod matrix_loader {
             let matrix = Matrix {
                 version,
                 service_interfaces: services,
-                data_type_definition: Default::default(),
+                data_type_definition: data_type_definitions,
                 serialization_parameter: matrix_serialazion_parameter,
                 matrix_role: roles,
             };

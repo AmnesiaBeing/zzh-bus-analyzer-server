@@ -13,7 +13,7 @@ pub type SomeipServiceId = u16;
 pub type SomeipMethodId = u16;
 pub type SomeipClientId = u16;
 pub type SomeipSessionId = u16;
-pub type SomeipInstantId = u16;
+pub type SomeipInstanceId = u16;
 pub type SomeipMajorVersion = u16;
 pub type SomeipMinorVersion = u16;
 
@@ -207,7 +207,7 @@ pub struct MatrixService {
     pub service_id: SomeipServiceId,
     pub service_name: String,
     pub service_description: String,
-    pub instance_id: SomeipInstantId,
+    pub instance_id: SomeipInstanceId,
     pub major_verison: SomeipMajorVersion,
     pub minor_version: SomeipMinorVersion,
     // TODO: 如何存储MatrixServiceMethod，能够通过methodid实现快速查找
@@ -215,6 +215,7 @@ pub struct MatrixService {
     pub server_client: Vec<(Rc<ServerMatrixRole>, ServerPort, Rc<ClientMatrixRole>)>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
 pub enum MatrixSerializationParameterSize {
     B8,
     B16,
@@ -222,6 +223,7 @@ pub enum MatrixSerializationParameterSize {
     B64,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
 pub struct MatrixSerializationParameter {
     pub alignment: MatrixSerializationParameterSize,
     pub padding_for_fix_length: bool,
@@ -246,10 +248,6 @@ pub struct Matrix {
 }
 
 impl Matrix {
-    // pub fn get_data_type_definition_or_insert_with(&self,name:&str)->&mut MatrixDataNodeWithRefs{
-    //     self.data_type_definition.iter().find(predicate)
-    // }
-
     // TODO: 给定一个点分+方括号字符串，找到整个链路？
 
     // TODO: 模糊查找链路可能的位置？
