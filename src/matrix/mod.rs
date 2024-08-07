@@ -2,24 +2,230 @@
 /// TODO: load/save json
 pub mod matrix_loader {
 
-    use std::borrow::BorrowMut;
     use std::cell::RefCell;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::Path;
     use std::rc::{Rc, Weak};
 
-    use calamine::{open_workbook, Error, RangeDeserializerBuilder, Reader, Xlsx};
-    use log::{debug, error, info, log_enabled, trace, Level};
-    use serde::{de, Deserialize, Deserializer};
+    use calamine::{open_workbook, RangeDeserializerBuilder, Reader, Xlsx};
+    use log::{debug, error, info, trace};
+    use serde::{de, Deserialize, Deserializer, Serialize};
 
     use crate::types::{
-        ClientMatrixRole, Matrix, MatrixDataNode, MatrixDataNodeRef, MatrixRole, MatrixService,
-        MatrixType, NumberType, ServerMatrixRole, SomeipServiceId, StringArrayLength,
+        ServerPort, SomeipInstanceId, SomeipMajorVersion, SomeipMethodId, SomeipMinorVersion,
+        SomeipServiceId, SomeipTransportPortocol,
     };
-    use crate::types::{
-        MatrixSerializationParameter, MatrixSerializationParameterSize, StringEncoding,
-    };
+
+    // ------- For Matrix 下面的结构体适用于描述Someip矩阵
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(untagged)]
+    pub enum MatrixServiceMethodFieldType {
+        Getter,
+        Setter,
+        Notifier,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(tag = "type", rename_all = "lowercase")]
+    pub enum MatrixServiceMethodType {
+        RRMethod {
+            data_in: Vec<String>,
+            #[serde(skip)]
+            data_in_ref: Vec<MatrixDataNodeRef>,
+            data_out: String,
+            #[serde(skip)]
+            data_out_ref: MatrixDataNodeRef,
+        },
+        FFMethod {
+            data_in: Vec<String>,
+            #[serde(skip)]
+            data_in_ref: Vec<MatrixDataNodeRef>,
+        },
+        EVENT {
+            data_out: String,
+            #[serde(skip)]
+            data_out_ref: MatrixDataNodeRef,
+        },
+        FIELD {
+            field_type: MatrixServiceMethodFieldType,
+            data: String,
+            #[serde(skip)]
+            data_ref: MatrixDataNodeRef,
+        },
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(untagged)]
+    pub enum NumberType {
+        Boolean,
+        Uint8,
+        Uint16,
+        Uint32,
+        Uint64,
+        Sint8,
+        Sint16,
+        Sint32,
+        Sint64,
+        Float32,
+        Float64,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(untagged)]
+    pub enum StringEncoding {
+        UTF8,
+        UTF16LE,
+        UTF16BE,
+    }
+
+    pub type StringArrayLengthFixed = usize;
+    pub type StringArrayLengthMin = usize;
+    pub type StringArrayLengthMax = usize;
+
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(untagged)]
+    pub enum StringArrayLength {
+        FIXED(StringArrayLengthFixed),
+        DYNAMIC(StringArrayLengthMin, StringArrayLengthMax),
+    }
+
+    impl Default for StringArrayLength {
+        fn default() -> Self {
+            Self::FIXED(StringArrayLengthFixed::default())
+        }
+    }
+
+    /// 根据Someip规范，payload的数据类型有且仅有：
+    /// 1. Integer数值类型：u8,u16,u32,u64,i8,i16,i32,i64,f32,f64
+    /// 2. String字符串类型：UTF-8,UTF-16LE,UTF-16BE
+    /// 3. Enumeration枚举类型：可按照u8,u16,u32,u64进行填充
+    /// 4. Array数组类型：所有可允许类型，可嵌套
+    /// 5. Struct结构体类型：所有可允许类型，可嵌套
+    /// 6. Union联合体类型：所有可允许的类型，可嵌套
+    #[derive(Debug, Deserialize, Serialize, Default)]
+    #[serde(tag = "type", rename_all = "lowercase")]
+    pub enum MatrixType {
+        // TODO: Enumeration如何处理，其实很多Integer类型实际是Enumeration类型
+        // 对于Number类型，还有逻辑值与物理值之间的映射关系
+        Number {
+            size: NumberType,
+        },
+        String {
+            length: StringArrayLength,
+            encoding: StringEncoding,
+        },
+        Array {
+            length: StringArrayLength,
+            children: String,
+            #[serde(skip)]
+            children_ref: MatrixDataNodeWeakRef,
+        },
+        Struct {
+            children: Vec<String>,
+            #[serde(skip)]
+            children_refs: Vec<MatrixDataNodeWeakRef>,
+        },
+        #[default]
+        Unimplemented,
+    }
+
+    #[derive(Debug, Deserialize, Serialize, Default)]
+    pub struct MatrixDataNode {
+        pub name: String,
+        pub description: String,
+        #[serde(flatten)]
+        pub data_type: MatrixType,
+    }
+
+    pub type MatrixDataNodeRef = Rc<RefCell<MatrixDataNode>>;
+    pub type MatrixDataNodeWeakRef = Weak<RefCell<MatrixDataNode>>;
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct MatrixServiceMethod {
+        method_id: SomeipMethodId,
+        method_name: String,
+        method_type: MatrixServiceMethodType,
+        transport_protocol: SomeipTransportPortocol,
+        #[serde(skip)]
+        mother_service_ref: Weak<MatrixService>,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct MatrixRole {
+        pub name: RoleName,
+        pub ip_addr: IpAddr,
+        pub mac_addr: [u8; 6],
+    }
+
+    impl Default for MatrixRole {
+        fn default() -> Self {
+            Self {
+                name: Default::default(),
+                ip_addr: IpAddr::V4(),
+                mac_addr: Default::default(),
+            }
+        }
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct MatrixRoleServerClientPair {
+        server: String,
+        #[serde(skip)]
+        server_ref: Rc<ServerMatrixRole>,
+        server_port: ServerPort,
+        client: String,
+        #[serde(skip)]
+        client_ref: Rc<ClientMatrixRole>,
+    }
+
+    pub type RoleName = String;
+    pub type ServerMatrixRole = MatrixRole;
+    pub type ClientMatrixRole = MatrixRole;
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct MatrixService {
+        pub service_id: SomeipServiceId,
+        pub service_name: String,
+        pub service_description: String,
+        pub instance_id: SomeipInstanceId,
+        pub major_verison: SomeipMajorVersion,
+        pub minor_version: SomeipMinorVersion,
+        pub methods: HashMap<SomeipMethodId, MatrixServiceMethod>,
+        pub server_client: Vec<MatrixRoleServerClientPair>,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub enum MatrixSerializationParameterSize {
+        B8,
+        B16,
+        B32,
+        B64,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct MatrixSerializationParameter {
+        pub alignment: MatrixSerializationParameterSize,
+        pub padding_for_fix_length: bool,
+        pub length_field_for_struct: bool,
+        pub tag_for_serialization: bool,
+        pub string_encoding: StringEncoding,
+        pub struct_length_field_size: MatrixSerializationParameterSize,
+        pub string_length_field_size: MatrixSerializationParameterSize,
+        pub array_length_field_size: MatrixSerializationParameterSize,
+        pub union_length_field_size: MatrixSerializationParameterSize,
+        pub union_type_selector_field_size: MatrixSerializationParameterSize,
+        pub union_null: bool,
+    }
+
+    pub struct Matrix {
+        pub version: String,
+        // TODO: map by id or name?
+        pub service_interfaces: HashMap<SomeipServiceId, MatrixService>,
+        pub data_type_definition: HashMap<String, MatrixDataNodeRef>,
+        pub serialization_parameter: MatrixSerializationParameter,
+        pub matrix_role: HashMap<RoleName, Rc<MatrixRole>>,
+    }
 
     fn deserialize_hex<'de, D>(deserializer: D) -> Result<u16, D::Error>
     where
