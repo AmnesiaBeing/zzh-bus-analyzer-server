@@ -17,7 +17,32 @@ fn command() -> Command {
                 .long("matrix")
                 .short('m')
                 .num_args(1)
-                .required(true),
+                .required(false),
+        )
+        .arg(
+            Arg::new("matrix-excel")
+                .help("load the excel matrix file.")
+                .value_parser(NonEmptyStringValueParser::new())
+                .long("matrix-excel")
+                .num_args(1)
+                .required(false),
+        )
+        .arg(
+            Arg::new("matrix-json")
+                .help("lod the json matrix file.")
+                .value_parser(NonEmptyStringValueParser::new())
+                .long("matrix-json")
+                .num_args(1)
+                .required(false),
+        )
+        .arg(
+            Arg::new("matrix-excel-to-json")
+                .help("convert the excel matrix file to json file.")
+                .value_parser(NonEmptyStringValueParser::new())
+                .long("matrix-excel-to-json")
+                .short('c')
+                .num_args(1)
+                .required(false),
         )
         .arg(
             Arg::new("debug")
