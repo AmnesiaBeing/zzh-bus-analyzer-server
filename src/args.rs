@@ -5,7 +5,8 @@ use log::{error, info};
 use std::error::Error;
 use std::path::Path;
 
-fn command() -> Command {
+
+pub fn command() -> Command {
     Command::new(crate_name!())
         .version(crate_version!())
         .author(crate_authors!("\n"))
@@ -87,50 +88,6 @@ fn command() -> Command {
                 .last(true)
                 .required(true)                
         )
-}
-
-pub fn get_args() -> Result<(String, bool, String, String),String> {
-    let matches = command().get_matches();
-
-    let matrix_file = matches
-        .get_one::<String>("matrix");
-    if matrix_file.is_none(){
-        return Err("arg matrix file not found!".to_string());
-    }
-    let matrix_file=matrix_file.unwrap();
-    if !Path::new(&matrix_file).is_file() {
-        return Err("arg matrix file not found!".to_string());
-    }
-    info!("matrix file:{}",matrix_file.to_string());
-
-    let debug = matches.get_flag("debug");
-    info!("debug:{}",debug);
-
-    let filter = matches.get_one::<String>("filter");
-
-    let input_from_adb = matches.get_one::<String>("input_from_adb");
-    let input_from_file = matches.get_one::<String>("input_from_file");
-    let input_from_local_interface = matches.get_one::<String>("input_from_local_interface");
-
-    if input_from_adb.is_some() {
-        // TODO: dump form android device
-        return Err("dump from android device will be supported.".to_string());
-    }
-
-    if input_from_local_interface.is_some() {
-        info!("input_from_local_interface:{}",input_from_local_interface.unwrap().trim().to_string());
-        return Ok((matrix_file.to_string(),debug,input_from_local_interface.unwrap().trim().to_string(),filter.unwrap().trim().to_string()));
-    }
-
-    if input_from_file.is_some() {
-        let input_from_file = input_from_file.unwrap();
-        if !Path::new(&input_from_file).is_file() {
-            return Err("arg input pcap file not found!".to_string());
-        }
-        return Ok((matrix_file.to_string(),debug,input_from_local_interface.unwrap().trim().to_string(),filter.unwrap().trim().to_string()));
-    }
-
-    Err("Invalid Arg".to_string())
 }
 
 #[cfg(test)]
