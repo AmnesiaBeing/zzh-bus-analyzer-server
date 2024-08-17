@@ -5,6 +5,7 @@ use std::rc::{Rc, Weak};
 
 use serde::{Deserialize, Serialize};
 
+use crate::errors::MyError;
 use crate::types::{
     ServerPort, SomeipInstanceId, SomeipMajorVersion, SomeipMethodId, SomeipMinorVersion,
     SomeipServiceId, SomeipTransportPortocol,
@@ -64,7 +65,7 @@ pub enum NumberType {
 }
 
 impl TryFrom<String> for NumberType {
-    type Error = &'static str;
+    type Error = MyError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         Ok(match value.as_str() {
@@ -79,7 +80,7 @@ impl TryFrom<String> for NumberType {
             "sint64" => NumberType::Sint64,
             "float" => NumberType::Float32,
             "double" => NumberType::Float64,
-            _ => return Err("parse number type error."),
+            _ => return Err(MyError::Custom("parse number type error.".to_owned())),
         })
     }
 }

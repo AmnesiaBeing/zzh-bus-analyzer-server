@@ -7,6 +7,7 @@ use calamine::{open_workbook, RangeDeserializerBuilder, Reader, Xlsx};
 use log::{debug, error, info};
 use serde::{de, Deserialize, Deserializer};
 
+use crate::errors::MyError;
 use crate::types::SomeipServiceId;
 
 use super::types::*;
@@ -153,14 +154,13 @@ struct ServiceInterfacesRecord {
 }
 
 impl Matrix {
-    pub fn from_excel_file<P>(path: P) -> Result<Matrix, Box<dyn std::error::Error>>
+    pub fn from_excel_file<P>(path: P) -> Result<Matrix, MyError>
     where
         P: AsRef<Path>,
     {
         let mut wb: Xlsx<_> = open_workbook(path)?;
         let version = wb
-            .worksheet_range("Cover")
-            .unwrap()
+            .worksheet_range("Cover")?
             .get_value((6, 0))
             .unwrap()
             .to_string()
@@ -241,6 +241,59 @@ impl Matrix {
         info!("Fill Services Completed.");
 
         // Fill Data Type
+
+        // 一些便于解析的小函数
+        fn parse_string_array_length(
+            record: &DataTypeDefinitionRecord,
+        ) -> Result<StringArrayLength, MyError> {
+            Ok(
+                match record.string_array_length_type.clone().unwrap().as_str() {
+                    "Fixed" => StringArrayLength::FIXED(0),
+                    "Dynamic" => StringArrayLength::DYNAMIC(
+                        record
+                            .string_array_length_min
+                            .clone()
+                            .unwrap()
+                            .parse::<usize>()
+                            .unwrap(),
+                        record
+                            .string_array_length_max
+                            .clone()
+                            .unwrap()
+                            .parse::<usize>()
+                            .unwrap(),
+                    ),
+                    _ => {
+                        return Err(MyError::Custom(format!(
+                            "parse length type error:{}",
+                            record.string_array_length_type.clone().unwrap()
+                        )));
+                    }
+                },
+            )
+        }
+
+        fn parse_number_data_type(record_data_type: &String) -> Result<MatrixType, MyError> {
+            Ok(MatrixType::Number {
+                size: NumberType::try_from(record_data_type.clone())?,
+            })
+        }
+
+        fn parse_string_encoding_data_type(
+            record_data_type: &String,
+        ) -> Result<StringEncoding, MyError> {
+            Ok(match record_data_type.as_str() {
+                "utf-8" => StringEncoding::UTF8,
+                "utf-16" => StringEncoding::UTF16LE,
+                _ => {
+                    return Err(MyError::ParseExcelMatrixFileError(format!(
+                        "parse encoding error:{}",
+                        record_data_type
+                    )));
+                }
+            })
+        }
+
         let range = wb.worksheet_range("DataTypeDefinition").unwrap();
         let iter_records =
             RangeDeserializerBuilder::with_deserialize_headers::<DataTypeDefinitionRecord>()
@@ -252,13 +305,7 @@ impl Matrix {
         // let mut last_record_data_category: String = Default::default();
 
         for result in iter_records {
-            let record: DataTypeDefinitionRecord = match result {
-                Ok(ret) => ret,
-                Err(err) => {
-                    debug!("parse record error:{:?}", err);
-                    panic!()
-                }
-            };
+            let record: DataTypeDefinitionRecord = result?;
 
             // 跳过空行
             if record.parameter_data_type_name.is_none() {
@@ -282,11 +329,10 @@ impl Matrix {
                 .to_lowercase();
 
             if record.data_category.is_none() {
-                debug!(
+                return Err(MyError::ParseExcelMatrixFileError(format!(
                     "data_category is empty, sth error. parameter_data_type_name:{:?}",
                     record_parameter_data_type_name
-                );
-                panic!()
+                )));
             }
             let last_record_data_category = record.data_category.clone().unwrap().to_lowercase();
 
@@ -309,41 +355,6 @@ impl Matrix {
                 .unwrap_or_else(|| "".to_string())
                 .to_lowercase();
 
-            // 一些便于解析的小函数
-            let parse_string_array_length =
-                |record: &DataTypeDefinitionRecord| -> StringArrayLength {
-                    match record.string_array_length_type.clone().unwrap().as_str() {
-                        "Fixed" => StringArrayLength::FIXED(0),
-                        "Dynamic" => StringArrayLength::DYNAMIC(
-                            record
-                                .string_array_length_min
-                                .clone()
-                                .unwrap()
-                                .parse::<usize>()
-                                .unwrap(),
-                            record
-                                .string_array_length_max
-                                .clone()
-                                .unwrap()
-                                .parse::<usize>()
-                                .unwrap(),
-                        ),
-                        _ => {
-                            error!(
-                                "parse length type error:{}",
-                                record.string_array_length_type.clone().unwrap()
-                            );
-                            panic!();
-                        }
-                    }
-                };
-
-            let parse_number_data_type = |record_data_type: &String| -> Option<MatrixType> {
-                Some(MatrixType::Number {
-                    size: NumberType::try_from(record_data_type.clone()).unwrap(),
-                })
-            };
-
             // if let Some(ref mut last_node_mut) = last_node {
             // if let last_node_mut = last_node {
             match last_record_data_category.as_str() {
@@ -358,11 +369,10 @@ impl Matrix {
                     let record_member_name = match &record.member_name {
                         Some(s) => s,
                         None => {
-                            error!(
+                            return Err(MyError::ParseExcelMatrixFileError(format!(
                                 "parse record member name error. {:?}",
                                 record.parameter_data_type_name
-                            );
-                            panic!()
+                            )))
                         }
                     };
 
@@ -400,13 +410,7 @@ impl Matrix {
                         _ => &MatrixDataNode {
                             name: record_member_name.clone(),
                             description: record_member_description.clone(),
-                            data_type: match parse_number_data_type(&record_data_type) {
-                                Some(s) => s,
-                                None => {
-                                    error!("parse record_data_type error.{}", record_data_type);
-                                    panic!();
-                                }
-                            },
+                            data_type: parse_number_data_type(&record_data_type)?,
                         },
                     };
 
@@ -443,8 +447,10 @@ impl Matrix {
                             // Member Datatype Reference 优先级高于 Member Name
                             // 且member_name一定不为空
                             if record_member_name.is_empty() {
-                                error!("parse array error. {}", last_key);
-                                panic!()
+                                return Err(MyError::ParseExcelMatrixFileError(format!(
+                                    "parse array error. {}",
+                                    last_key
+                                )));
                             }
                             let struct_array_union_in_struct_key_name =
                                 if record_member_data_type_reference.is_empty()
@@ -468,13 +474,7 @@ impl Matrix {
                             &MatrixDataNode {
                                 name: Default::default(),
                                 description: Default::default(),
-                                data_type: match parse_number_data_type(&record_data_type) {
-                                    Some(s) => s,
-                                    None => {
-                                        error!("parse record_data_type error.");
-                                        panic!();
-                                    }
-                                },
+                                data_type: parse_number_data_type(&record_data_type)?,
                             }
                         }
                     };
@@ -485,7 +485,7 @@ impl Matrix {
                         ref mut member,
                     } = last_node_mut.data_type
                     {
-                        (*length) = parse_string_array_length(&record);
+                        (*length) = parse_string_array_length(&record)?;
                         (*member) = MatrixMember {
                             member_name: record_member_name.clone(),
                             member_description: record_member_description.clone(),
@@ -496,37 +496,26 @@ impl Matrix {
                 "string" => {
                     // 首次确定类型需初始化
                     last_node.data_type = MatrixType::String {
-                        length: parse_string_array_length(&record),
-                        encoding: match record_data_type.as_str() {
-                            "utf-8" => StringEncoding::UTF8,
-                            "utf-16" => StringEncoding::UTF16LE,
-                            _ => {
-                                error!("parse encoding error:{}", record_data_type);
-                                panic!()
-                            }
-                        },
+                        length: parse_string_array_length(&record)?,
+                        encoding: parse_string_encoding_data_type(&record_data_type)?,
                     };
                 }
                 "integer" | "enumeration" | "float" | "double" => {
                     // TODO: enumeration offset min max ...
-                    last_node.data_type = match parse_number_data_type(&record_data_type) {
-                        Some(s) => s,
-                        _ => {
-                            error!("parse data type error: {}", record_data_type);
-                            panic!();
-                        }
-                    }
+                    last_node.data_type = parse_number_data_type(&record_data_type)?;
                 }
                 _ => {
-                    error!("parse data category error:{}", last_record_data_category);
-                    panic!();
+                    return Err(MyError::ParseExcelMatrixFileError(format!(
+                        "parse data category error:{}",
+                        last_record_data_category
+                    )));
                 }
             };
             // }
         }
 
         // Fill Methods
-        let range = wb.worksheet_range("ServiceInterfaces").unwrap();
+        let range = wb.worksheet_range("ServiceInterfaces")?;
         let iter_records =
             RangeDeserializerBuilder::with_deserialize_headers::<ServiceInterfacesRecord>()
                 .has_headers(false)
