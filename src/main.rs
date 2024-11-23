@@ -2,7 +2,7 @@ mod args;
 mod errors;
 mod matrix;
 mod types;
-mod data_sources;
+mod parsers;
 
 use args::command;
 use errors::MyError;

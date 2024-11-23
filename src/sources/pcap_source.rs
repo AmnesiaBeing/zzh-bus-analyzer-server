@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use log::{error, info};
 use pnet::datalink::Channel::Ethernet;
-use pnet::datalink::{self, Config};
+use pnet::datalink::{self, Config, DataLinkReceiver};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use pnet::packet::ip::IpNextHeaderProtocols::{self};
 use pnet::packet::sll::SLLPacket;
@@ -16,7 +16,7 @@ use crate::errors::MyError;
 use crate::types::SomeipMessage;
 
 use super::pnet_packet_someip::{SomeipIterable, SomeipPacket};
-use super::{DataSource, DataSourceReceiver};
+use super::{DataSource, DataSourceConfig, DataSourceReceiver};
 
 /// 用户不关心用TCP、UDP传输，还是用SomeIP-TP传输
 /// 用户只关心，是不是正常的包，是不是SD包（有没有订阅过程等等）
@@ -25,19 +25,20 @@ use super::{DataSource, DataSourceReceiver};
 /// 但是，在没有提供原始矩阵表的情况下，只能按照MessageType字段区分上述类型了
 
 struct PcapFileReceiverImpl {
-    // capture: Arc<Mutex<pcap::Capture<T>>>,
+    capture: Box<dyn DataLinkReceiver>,
     read_buffer: Vec<u8>,
 }
 
 impl DataSource {
-    pub fn init_from_path<'a>(path: PathBuf) -> Result<PacketParser<'a>, MyError> {
-        let mut config = datalink::Config::default();
-        match datalink::pcap::from_file(path, &mut config) {
-            Ok(Ethernet(rx)) => Ok(PacketParser {
-                path: path.clone(),
-                pnet_config: config,
-                rx: rx.into(),
-                ret: RefCell::new(Box::new(vec![])),
+    pub fn init_from_path<'a>(path: PathBuf) -> Result<Self, MyError> {
+        let mut config = pnet::datalink::pcap::Config::default();
+        match datalink::pcap::from_file(path, config) {
+            Ok(Ethernet(_, rx)) => Ok(DataSource {
+                config: DataSourceConfig::PcapFile { file_path: path },
+                rx: Box::new(PcapFileReceiverImpl {
+                    capture: rx,
+                    read_buffer: Vec::new(),
+                }),
             }),
             Ok(_) => Err("packetdump: unhandled channel type"),
             Err(e) => Err(&format!("packetdump: unable to create channel: {}", e)),
