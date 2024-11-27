@@ -3,11 +3,13 @@ mod errors;
 mod matrix;
 mod parsers;
 mod types;
+mod sources;
 
 use args::command;
 use errors::MyError;
 use log::{debug, error, info, log_enabled, trace};
 use matrix::types::Matrix;
+use sources::Source;
 use std::env::set_var;
 use std::ffi::OsStr;
 use std::path::Path;
@@ -61,7 +63,7 @@ fn main() -> Result<(), MyError> {
     // TODO: filter parse
 
     // parse data source
-    // let source: Source;
+    let source: Source;
     // match (
     //     matches.get_one::<String>("input_from_adb"),
     //     matches.get_one::<String>("input_from_file"),

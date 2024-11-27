@@ -11,6 +11,7 @@ edition = "2021"
 [dependencies]
 calamine = "0.25.0"
 clap = { version = "4.5.7", features = ["cargo"] }
+crossbeam-channel = "0.5.13"
 env_logger = "0.11.3"
 log = "0.4.21"
 pnet = { version = "0.35.0", features = ["pcap"] }
