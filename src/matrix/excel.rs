@@ -286,7 +286,7 @@ impl Matrix {
                 "utf-8" => StringEncoding::UTF8,
                 "utf-16" => StringEncoding::UTF16LE,
                 _ => {
-                    return Err(MyError::ParseExcelMatrixFileError(format!(
+                    return Err(MyError::ParseMatrixFileError(format!(
                         "parse encoding error:{}",
                         record_data_type
                     )));
@@ -329,7 +329,7 @@ impl Matrix {
                 .to_lowercase();
 
             if record.data_category.is_none() {
-                return Err(MyError::ParseExcelMatrixFileError(format!(
+                return Err(MyError::ParseMatrixFileError(format!(
                     "data_category is empty, sth error. parameter_data_type_name:{:?}",
                     record_parameter_data_type_name
                 )));
@@ -369,7 +369,7 @@ impl Matrix {
                     let record_member_name = match &record.member_name {
                         Some(s) => s,
                         None => {
-                            return Err(MyError::ParseExcelMatrixFileError(format!(
+                            return Err(MyError::ParseMatrixFileError(format!(
                                 "parse record member name error. {:?}",
                                 record.parameter_data_type_name
                             )))
@@ -447,7 +447,7 @@ impl Matrix {
                             // Member Datatype Reference 优先级高于 Member Name
                             // 且member_name一定不为空
                             if record_member_name.is_empty() {
-                                return Err(MyError::ParseExcelMatrixFileError(format!(
+                                return Err(MyError::ParseMatrixFileError(format!(
                                     "parse array error. {}",
                                     last_key
                                 )));
@@ -505,7 +505,7 @@ impl Matrix {
                     last_node.data_type = parse_number_data_type(&record_data_type)?;
                 }
                 _ => {
-                    return Err(MyError::ParseExcelMatrixFileError(format!(
+                    return Err(MyError::ParseMatrixFileError(format!(
                         "parse data category error:{}",
                         last_record_data_category
                     )));

@@ -7,7 +7,7 @@ pub enum MyError {
     Xlsx(#[from] calamine::XlsxError),
     De(#[from] calamine::DeError),
     ArgInputError(String),
-    ParseExcelMatrixFileError(String),
+    ParseMatrixFileError(String),
     Custom(String)
 }
 
